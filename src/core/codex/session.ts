@@ -20,6 +20,7 @@ export interface CodexSessionInput {
   isGitRoot?: (dir: string) => boolean;
   /** Only read enough for a listing; skips per-call detail. */
   headerOnly?: boolean;
+  homeDir?: string;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
