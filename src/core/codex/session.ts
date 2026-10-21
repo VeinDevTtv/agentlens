@@ -218,6 +218,7 @@ export function parseCodexSession(input: CodexSessionInput): CodexParseResult {
   const project = resolveProject(cwd, {
     ...(repositoryUrl ? { repositoryUrl } : {}),
     ...(input.isGitRoot ? { isGitRoot: input.isGitRoot } : {}),
+    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
   });
   const title = titleFromPrompt(firstUserText) || 'Untitled session';
   const inProgress = todos.find((t) => t.status === 'in_progress');

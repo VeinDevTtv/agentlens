@@ -28,6 +28,10 @@ describe('resolveProject', () => {
     expect(resolveProject('/tmp/checkout', { repositoryUrl: 'git@github.com:example/infra' }).name).toBe('infra');
   });
 
+  it('labels the home directory', () => {
+    expect(resolveProject('/home/dev', { homeDir: '/home/dev/' }).name).toBe('Home');
+  });
+
   it('handles a missing cwd', () => {
     expect(resolveProject(undefined).name).toBe('Unknown project');
   });

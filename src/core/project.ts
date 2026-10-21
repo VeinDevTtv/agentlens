@@ -12,6 +12,8 @@ export interface ProjectResolveOptions {
   repositoryUrl?: string;
   /** Upper bound on parent directories to walk when probing for a git root. */
   maxDepth?: number;
+  /** The user's home directory; sessions started there are labeled "Home". */
+  homeDir?: string;
 }
 
 const GENERIC_SEGMENTS = new Set(['tmp', 'temp', 'src', 'app', 'www', 'repo', 'project', 'workspace', 'code', '.']);
@@ -38,6 +40,9 @@ export function resolveProject(cwd: string | undefined, options: ProjectResolveO
 
   if (/[\\/]\.claude[\\/]jobs[\\/]/.test(normalized)) {
     return { name: 'Claude scheduled jobs', path: normalized };
+  }
+  if (options.homeDir && normalized === options.homeDir.replace(/[\\/]+$/, '')) {
+    return { name: 'Home', path: normalized };
   }
 
   if (options.repositoryUrl) {

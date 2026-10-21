@@ -22,6 +22,7 @@ export interface ClaudeSessionInput {
   now: number;
   activeWindowMs: number;
   isGitRoot?: (dir: string) => boolean;
+  homeDir?: string;
 }
 
 interface SpawnInfo {
@@ -415,6 +416,7 @@ export function parseClaudeSession(input: ClaudeSessionInput): RunDetail {
 
   const project = resolveProject(cwd, {
     ...(input.isGitRoot && isGitRepo !== false ? { isGitRoot: input.isGitRoot } : {}),
+    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
   });
 
   const run: RunSummary = {
@@ -451,6 +453,7 @@ export interface ClaudeHeaderInput {
   now: number;
   activeWindowMs: number;
   isGitRoot?: (dir: string) => boolean;
+  homeDir?: string;
 }
 
 /** Cheap discovery pass: enough to list a run without parsing the whole transcript. */
@@ -503,7 +506,10 @@ export function parseClaudeHeader(input: ClaudeHeaderInput): RunSummary {
   if (!model) {
     for (const record of head) if (record.type === 'assistant' && record.message?.model) model = record.message.model;
   }
-  const project = resolveProject(cwd, { ...(input.isGitRoot && isGitRepo !== false ? { isGitRoot: input.isGitRoot } : {}) });
+  const project = resolveProject(cwd, {
+    ...(input.isGitRoot && isGitRepo !== false ? { isGitRoot: input.isGitRoot } : {}),
+    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+  });
   const status = deriveStatus({
     now: input.now,
     lastActivityAt,
