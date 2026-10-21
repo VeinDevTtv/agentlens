@@ -9,6 +9,8 @@ const SHORTCUTS: Array<[string, string]> = [
   ['[', 'Toggle sidebar'],
   ['a', 'Toggle "Active only"'],
   ['r', 'Rescan session directories'],
+  ['n', 'New workflow'],
+  ['c', 'New chat'],
   [',', 'Open settings'],
   ['?', 'Show this help'],
 ];

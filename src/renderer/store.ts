@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { DEFAULT_PRICING } from '../core/pricing';
-import type { AgentStatus, Provider, RunDetail, RunSummary, Settings, Snapshot } from '../shared/types';
+import type { AgentStatus, Chat, OrchestratorConfig, Provider, RunDetail, RunSummary, Settings, Snapshot, WorkflowRun } from '../shared/types';
 
 export type StatusFilter = 'all' | AgentStatus;
 export type ProviderFilter = 'all' | Provider;
@@ -27,6 +27,13 @@ export interface UiState {
   helpOpen: boolean;
   sidebarCollapsed: boolean;
   now: number;
+  workflows: WorkflowRun[];
+  orchestrator: OrchestratorConfig | undefined;
+  selectedWorkflowId: string | undefined;
+  workflowDialogOpen: boolean;
+  chats: Chat[];
+  selectedChatId: string | undefined;
+  chatDialogOpen: boolean;
 }
 
 export interface UiActions {
@@ -51,6 +58,17 @@ export interface UiActions {
   setHelpOpen(open: boolean): void;
   toggleSidebar(): void;
   tickNow(): void;
+  setWorkflows(workflows: WorkflowRun[]): void;
+  upsertWorkflow(workflow: WorkflowRun): void;
+  removeWorkflow(id: string): void;
+  setOrchestratorConfig(config: OrchestratorConfig): void;
+  selectWorkflow(id: string | undefined): void;
+  setWorkflowDialogOpen(open: boolean): void;
+  setChats(chats: Chat[]): void;
+  upsertChat(chat: Chat): void;
+  removeChat(id: string): void;
+  selectChat(id: string | undefined): void;
+  setChatDialogOpen(open: boolean): void;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -60,6 +78,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifications: false,
   activeWindowSeconds: 45,
   pricing: { ...DEFAULT_PRICING },
+  claudeBinary: '',
 };
 
 export const useStore = create<UiState & UiActions>((set) => ({
@@ -83,11 +102,18 @@ export const useStore = create<UiState & UiActions>((set) => ({
   helpOpen: false,
   sidebarCollapsed: false,
   now: Date.now(),
+  workflows: [],
+  orchestrator: undefined,
+  selectedWorkflowId: undefined,
+  workflowDialogOpen: false,
+  chats: [],
+  selectedChatId: undefined,
+  chatDialogOpen: false,
 
   setSnapshot: (snapshot) => set({ snapshot, loading: false, snapshotError: undefined }),
   setSnapshotError: (snapshotError) => set({ snapshotError, loading: false }),
   setLoading: (loading) => set({ loading }),
-  selectRun: (selectedRunId) => set({ selectedRunId, selectedAgentId: undefined }),
+  selectRun: (selectedRunId) => set({ selectedRunId, selectedAgentId: undefined, selectedWorkflowId: undefined, selectedChatId: undefined }),
   selectAgent: (selectedAgentId) => set({ selectedAgentId }),
   setDetail: (detail) => set((state) => ({ details: { ...state.details, [detail.run.id]: detail }, detailLoading: false })),
   setDetailLoading: (detailLoading) => set({ detailLoading }),
@@ -109,4 +135,33 @@ export const useStore = create<UiState & UiActions>((set) => ({
   setHelpOpen: (helpOpen) => set({ helpOpen }),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   tickNow: () => set({ now: Date.now() }),
+  setWorkflows: (workflows) => set({ workflows: [...workflows].sort((a, b) => b.createdAt - a.createdAt) }),
+  upsertWorkflow: (workflow) =>
+    set((state) => {
+      const exists = state.workflows.some((w) => w.id === workflow.id);
+      const workflows = exists ? state.workflows.map((w) => (w.id === workflow.id ? workflow : w)) : [workflow, ...state.workflows];
+      return { workflows: workflows.sort((a, b) => b.createdAt - a.createdAt) };
+    }),
+  removeWorkflow: (id) =>
+    set((state) => ({
+      workflows: state.workflows.filter((w) => w.id !== id),
+      selectedWorkflowId: state.selectedWorkflowId === id ? undefined : state.selectedWorkflowId,
+    })),
+  setOrchestratorConfig: (orchestrator) => set({ orchestrator }),
+  selectWorkflow: (selectedWorkflowId) => set({ selectedWorkflowId, selectedRunId: undefined, selectedAgentId: undefined, selectedChatId: undefined }),
+  setWorkflowDialogOpen: (workflowDialogOpen) => set({ workflowDialogOpen }),
+  setChats: (chats) => set({ chats: [...chats].sort((a, b) => b.updatedAt - a.updatedAt) }),
+  upsertChat: (chat) =>
+    set((state) => {
+      const exists = state.chats.some((c) => c.id === chat.id);
+      const chats = exists ? state.chats.map((c) => (c.id === chat.id ? chat : c)) : [chat, ...state.chats];
+      return { chats: chats.sort((a, b) => b.updatedAt - a.updatedAt) };
+    }),
+  removeChat: (id) =>
+    set((state) => ({
+      chats: state.chats.filter((c) => c.id !== id),
+      selectedChatId: state.selectedChatId === id ? undefined : state.selectedChatId,
+    })),
+  selectChat: (selectedChatId) => set({ selectedChatId, selectedRunId: undefined, selectedAgentId: undefined, selectedWorkflowId: undefined }),
+  setChatDialogOpen: (chatDialogOpen) => set({ chatDialogOpen }),
 }));

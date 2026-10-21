@@ -133,6 +133,15 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </fieldset>
 
         <fieldset>
+          <legend>Workflows</legend>
+          <p className="muted small">Workflows run headless Claude Code sessions on this machine, one per role.</p>
+          <label className="field">
+            <span>Claude Code CLI path (blank = auto-detect)</span>
+            <input type="text" value={draft.claudeBinary} onChange={(e) => setDraft((d) => ({ ...d, claudeBinary: e.target.value }))} placeholder="e.g. ~/.local/bin/claude" spellCheck={false} />
+          </label>
+        </fieldset>
+
+        <fieldset>
           <legend>Pricing (USD per million tokens)</legend>
           <p className="muted small">Model names match by prefix, so <code>claude-opus-5-5</code> covers dated variants. Edit to match your plan.</p>
           <div className="pricing-table-wrap">

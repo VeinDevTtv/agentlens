@@ -25,8 +25,10 @@ Agent harnesses write detailed JSONL transcripts, but they are hard to read and 
 | Agent cards | Task title, status (Running / Idle / Finished / Errored), "Now:" item from the todo list, current action, elapsed time, tokens, tool count, model badge |
 | Side panel | Task and full prompt, Timeline, Tool calls with result previews, Files touched, Token breakdown with per-model cost |
 | Timeline | Horizontal Gantt of agent lifetimes with spawn markers and a now line |
-| Settings | Session directories, light/dark/system theme, desktop notifications, idle window, editable per-model pricing |
-| Keyboard | `/` search, `j`/`k` move, `Enter` open, `Esc` close, `1`/`2` views, `?` help |
+| Chat | Talk to Claude about a project; a read-only Conductor answers questions itself and starts workflows when you ask for work to be done, then reports back |
+| Workflows | Run role-based agent workflows (Planner → Coder → Reviewer, or your own roles) as headless Claude Code sessions, each visible in the sidebar like any other run |
+| Settings | Session directories, light/dark/system theme, desktop notifications, idle window, editable per-model pricing, Claude Code CLI path |
+| Keyboard | `/` search, `j`/`k` move, `Enter` open, `Esc` close, `1`/`2` views, `n` new workflow, `c` new chat, `?` help |
 
 ![Side panel](docs/screenshots/side-panel.png)
 *Side panel on a subagent: the prompt it received, its tool calls, and token cost.*
@@ -83,12 +85,115 @@ How the pieces are derived:
 - **Status:** *Running* while the log changed within the idle window (45 s by default), *Finished* when the subagent handed back or the session is old, *Errored* on an API error or a failing final tool call, *Idle* otherwise.
 - **Cost:** token counts from the logs times the per-model prices in Settings. Models without a price show "Set pricing" instead of a guess.
 
+## Chat
+
+AgentLens is also the place you open to talk to Claude about a project. Press `c` (or click **New chat** in the sidebar), pick a working directory, and start typing.
+
+The other side of the conversation is the **Conductor**: a headless Claude Code session (`claude -p`) started with a fixed `--session-id` and continued with `--resume` on every message. It runs with the same flags as the `read-only` permission level (see [Permission levels](#permission-levels)) and is limited to 25 turns per reply.
+
+The Conductor answers questions and reads the code itself, but it never edits files or runs commands. When you ask for work to be done, it ends its reply with a fenced `agentlens` block:
+
+````
+```agentlens
+{"action":"run-workflow","templateId":"plan-build-review","goal":"<self-contained goal>"}
+```
+````
+
+Use `"roleIds": ["planner", "coder"]` instead of `templateId` for a custom sequence. AgentLens then:
+
+1. Removes the block from the reply you see.
+2. Starts the workflow in the chat's working directory and adds a "Started workflow" event to the chat. Click it to open the workflow.
+3. When the workflow ends, sends the Conductor each step's status and the final output, and the Conductor summarises the result for you.
+
+If a block is malformed (invalid JSON, unknown action, no goal, or no template or roles), it stays visible in the reply and an error note explains why.
+
+| Key | Action |
+| --- | --- |
+| `c` | New chat |
+| `Enter` | Send |
+| `Shift+Enter` | New line |
+
+- Chats are saved as one JSON file each in `<userData>/chats/`. A reply that was still in progress when AgentLens closed is marked errored on the next launch.
+- **Stop** cancels the reply in progress.
+- Each message is a Claude Code turn billed to your own Claude account. Nothing goes through AgentLens servers; there are none.
+
+## Workflows
+
+AgentLens can also run agents, not just watch them. A workflow is an ordered list of roles; each role is a headless Claude Code session (`claude -p`) that receives the goal plus the previous step's final output. Pick a template, describe the goal, choose a working directory, and press Start (or press `n` to open the New workflow dialog).
+
+| Template | Roles |
+| --- | --- |
+| Plan, build, review | Planner → Coder → Reviewer |
+| Plan and build | Planner → Coder |
+| Build | Coder |
+| Operate | Operator |
+
+You can also pick any custom sequence of roles instead of a template.
+
+Each step is started with a pre-assigned `--session-id`, so it appears in the sidebar as soon as Claude Code writes its log, and the step card links straight to that run. The step's result text is pasted into the next role's prompt under "Output from the previous step".
+
+### Built-in roles
+
+| Role | Permission | What it does |
+| --- | --- | --- |
+| Planner | read-only | Reads the codebase and writes a step-by-step plan. |
+| Coder | edit | Implements the plan it is given and runs the tests. |
+| Reviewer | read-only | Reviews the changes for bugs and reports findings. |
+| Operator | full | Carries out tasks on the computer with full shell access. |
+
+### Permission levels
+
+Each level maps directly to Claude Code CLI flags. `WebFetch` and `WebSearch` are disallowed at every level except `full`.
+
+| Level | Flags |
+| --- | --- |
+| `read-only` | `--permission-mode dontAsk`, allowed `Read`, `Grep`, `Glob`, `LS`, `TodoWrite`; disallowed `Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `WebFetch`, `WebSearch` |
+| `edit` | `--permission-mode acceptEdits`, the read-only tools plus `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Bash(git status:*)`, `Bash(git diff:*)`, `Bash(git log:*)`, `Bash(npm test:*)`, `Bash(npm run:*)`, `Bash(npx vitest:*)`, `Bash(npx tsc:*)` |
+| `full` | `--permission-mode bypassPermissions` |
+
+**Warning:** a `full` role runs any shell command without asking. Use it only for roles you trust with your machine, and only in directories you can afford to lose.
+
+A role's `extraTools` are appended to the allowed list at any level, so an `edit` role can be granted `Bash(npm run build:*)` without going `full`.
+
+### Custom roles
+
+Put a `roles.json` in the app's user-data directory:
+
+- macOS: `~/Library/Application Support/AgentLens/roles.json`
+- Linux: `~/.config/AgentLens/roles.json`
+- Windows: `%APPDATA%/AgentLens/roles.json`
+
+It is a JSON array of role definitions. A role with the same `id` as a built-in one replaces it. Invalid entries are skipped and a warning is logged to the main-process console.
+
+```json
+[
+  {
+    "id": "docs-writer",
+    "name": "Docs writer",
+    "description": "Updates the README to match the code.",
+    "systemPrompt": "You are the Docs writer. Update README.md to describe the changes you are given. Do not touch source files.",
+    "permission": "edit",
+    "maxTurns": 40,
+    "model": "sonnet",
+    "extraTools": ["Bash(npm run lint:*)"]
+  }
+]
+```
+
+`id` must be lowercase letters, digits, or dashes; `name`, `systemPrompt`, and `permission` (`read-only`, `edit`, or `full`) are required; `description`, `maxTurns` (1–500), `model`, and `extraTools` are optional.
+
+### State and settings
+
+- Workflow state is saved as one JSON file per run in `<userData>/workflows/`, so finished workflows survive restarts. A workflow that was still running when AgentLens was closed cannot be resumed and is marked errored on the next launch.
+- Settings → Workflows → **Claude Code CLI path** sets the binary to run. Leave it blank to auto-detect `claude` from `PATH`, `~/.local/bin`, `/opt/homebrew/bin`, or `/usr/local/bin`.
+- Workflows reach the Claude API through your own Claude Code install and account. AgentLens itself still makes no network requests.
+
 ## Privacy
 
 AgentLens is local-only software.
 
 - It reads files under the two configured directories and nothing else.
-- It makes no network requests. There is no telemetry, crash reporting, or update check.
+- It makes no network requests. There is no telemetry, crash reporting, or update check. Workflows spawn your local Claude Code CLI, which talks to the Claude API on its own; AgentLens never does.
 - Prompts, tool results, and file paths are shown in the UI and are never written anywhere except the app's own `settings.json` (which holds only your preferences).
 
 If you share screenshots or bug reports, scrub them first: transcripts frequently contain secrets.
