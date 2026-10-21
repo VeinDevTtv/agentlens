@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
 import { registerIpc } from './ipc';
 import { Monitor } from './monitor';
+import { Orchestrator } from './orchestrator';
 import { SettingsStore } from './settings';
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
@@ -46,14 +47,18 @@ app.setName('AgentLens');
 void app.whenReady().then(async () => {
   const settings = new SettingsStore();
   const monitor = new Monitor(settings.get());
-  registerIpc(monitor, settings);
+  const orchestrator = new Orchestrator(app.getPath('userData'), settings.get());
+  registerIpc(monitor, settings, orchestrator);
   createWindow(settings);
   await monitor.start();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(settings);
   });
-  app.on('before-quit', () => monitor.stop());
+  app.on('before-quit', () => {
+    orchestrator.stop();
+    monitor.stop();
+  });
 });
 
 app.on('window-all-closed', () => {

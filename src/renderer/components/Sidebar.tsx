@@ -1,7 +1,7 @@
-import { ChevronDown, ChevronRight, Eye, EyeOff, Keyboard, RefreshCw, Search, Settings as SettingsIcon, Telescope, X, Zap } from 'lucide-react';
+import { ChevronDown, ChevronRight, Eye, EyeOff, Keyboard, Play, RefreshCw, Search, Settings as SettingsIcon, Telescope, X, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { totalTokens } from '../../core/tokens';
-import type { RunSummary } from '../../shared/types';
+import type { RunSummary, WorkflowRun, WorkflowStatus } from '../../shared/types';
 import { bridge } from '../lib/bridge';
 import { formatCompact, formatRelative, shortModel } from '../lib/format';
 import { groupByProject, matchesFilters, projectNames, sortRuns } from '../lib/selectors';
@@ -71,8 +71,48 @@ function RunRow({ run, selected, now, onSelect }: { run: RunSummary; selected: b
   );
 }
 
+const WORKFLOW_DOT: Record<WorkflowStatus, string> = { running: 'running', finished: 'finished', errored: 'errored', cancelled: 'idle' };
+const WORKFLOW_LABEL: Record<WorkflowStatus, string> = { running: 'Running', finished: 'Finished', errored: 'Errored', cancelled: 'Cancelled' };
+const WORKFLOWS_GROUP = '__workflows';
+
+function WorkflowRow({ workflow, selected, now, onSelect }: { workflow: WorkflowRun; selected: boolean; now: number; onSelect: (id: string) => void }) {
+  const done = workflow.steps.filter((s) => s.status === 'finished').length;
+  const running = workflow.steps.find((s) => s.status === 'running');
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      className="run-row workflow-row"
+      data-workflow-id={workflow.id}
+      onClick={() => onSelect(workflow.id)}
+      title={`${workflow.name}\n${workflow.goal}\n${workflow.cwd}`}
+    >
+      <span className={`status-dot ${WORKFLOW_DOT[workflow.status]}`} aria-hidden="true" />
+      <span style={{ minWidth: 0 }}>
+        <span className="title">{workflow.name}</span>
+        <span className="sub">
+          <span className="sr-only">{WORKFLOW_LABEL[workflow.status]}.</span>
+          <span>Workflow</span>
+          {running && <span>· {running.roleId}</span>}
+        </span>
+      </span>
+      <span className="right">
+        <span>{formatRelative(workflow.updatedAt, now)}</span>
+        <span title="Finished steps">
+          {done}/{workflow.steps.length} steps
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function Sidebar() {
   const snapshot = useStore((s) => s.snapshot);
+  const workflows = useStore((s) => s.workflows);
+  const selectedWorkflowId = useStore((s) => s.selectedWorkflowId);
+  const selectWorkflow = useStore((s) => s.selectWorkflow);
+  const setWorkflowDialogOpen = useStore((s) => s.setWorkflowDialogOpen);
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
   const projectFilter = useStore((s) => s.projectFilter);
@@ -110,6 +150,9 @@ export function Sidebar() {
         <div className="brand">
           <Telescope size={18} aria-hidden="true" /> AgentLens
           <span className="version">{runningCount > 0 ? `${runningCount} running` : ''}</span>
+          <button type="button" className="btn small new-workflow" onClick={() => setWorkflowDialogOpen(true)} title="New workflow (n)">
+            <Play size={12} aria-hidden="true" /> New workflow
+          </button>
         </div>
         <div className="search">
           <Search size={14} aria-hidden="true" />
@@ -171,7 +214,20 @@ export function Sidebar() {
           )}
         </div>
       </div>
-      <div className="run-list" role="listbox" aria-label="Runs grouped by project" aria-activedescendant={selectedRunId}>
+      <div className="run-list" role="listbox" aria-label="Runs grouped by project" aria-activedescendant={selectedWorkflowId ?? selectedRunId}>
+        {workflows.length > 0 && (
+          <section className="project-group workflows-group">
+            <button type="button" className="project-header" onClick={() => toggleProject(WORKFLOWS_GROUP)} aria-expanded={!collapsed[WORKFLOWS_GROUP]} title="Workflows started from AgentLens">
+              {collapsed[WORKFLOWS_GROUP] ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+              <span className="name">Workflows</span>
+              <span className="meta">
+                {workflows.some((w) => w.status === 'running') && <span className="running-dot" title="A workflow is running" />}
+                <span>{workflows.length}</span>
+              </span>
+            </button>
+            {!collapsed[WORKFLOWS_GROUP] && workflows.map((w) => <WorkflowRow key={w.id} workflow={w} now={now} selected={w.id === selectedWorkflowId} onSelect={selectWorkflow} />)}
+          </section>
+        )}
         {visible.length === 0 && (
           <div className="empty-state" style={{ padding: '32px 12px' }}>
             <p>{allRuns.length === 0 ? 'No runs discovered yet.' : 'No runs match these filters.'}</p>

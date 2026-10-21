@@ -16,6 +16,7 @@ export function defaultSettings(): Settings {
     notifications: false,
     activeWindowSeconds: 45,
     pricing: { ...DEFAULT_PRICING },
+    claudeBinary: '',
   };
 }
 
@@ -37,6 +38,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (raw.theme === 'light' || raw.theme === 'dark' || raw.theme === 'system') out.theme = raw.theme;
   if (typeof raw.notifications === 'boolean') out.notifications = raw.notifications;
   if (typeof raw.activeWindowSeconds === 'number' && raw.activeWindowSeconds >= 5 && raw.activeWindowSeconds <= 3600) out.activeWindowSeconds = raw.activeWindowSeconds;
+  if (typeof raw.claudeBinary === 'string') out.claudeBinary = raw.claudeBinary.trim();
   if (isObject(raw.pricing)) {
     for (const [model, value] of Object.entries(raw.pricing)) {
       if (!isObject(value)) continue;

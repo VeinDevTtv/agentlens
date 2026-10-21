@@ -8,6 +8,8 @@ import { Sidebar } from './components/Sidebar';
 import { SidePanel } from './components/SidePanel';
 import { Timeline } from './components/Timeline';
 import { Topology } from './components/Topology';
+import { WorkflowDialog } from './components/WorkflowDialog';
+import { WorkflowView } from './components/WorkflowView';
 import { useClock, useKeyboardShortcuts, useMonitor, useNotifications, useSelectedRun, useTheme } from './hooks';
 import { bridge } from './lib/bridge';
 import { groupByProject, matchesFilters, sortRuns } from './lib/selectors';
@@ -54,9 +56,11 @@ function MainArea() {
   const selectAgent = useStore((s) => s.selectAgent);
   const view = useStore((s) => s.view);
   const now = useStore((s) => s.now);
+  const selectedWorkflow = useStore((s) => (s.selectedWorkflowId ? s.workflows.find((w) => w.id === s.selectedWorkflowId) : undefined));
   const run = snapshot?.runs.find((r) => r.id === selectedRunId);
   const selectedAgent = detail?.agents.find((a) => a.id === selectedAgentId);
 
+  if (selectedWorkflow) return <WorkflowView key={selectedWorkflow.id} workflow={selectedWorkflow} />;
   if (snapshotError) {
     return (
       <EmptyState icon={AlertTriangle} title="Could not read sessions">
@@ -121,6 +125,8 @@ export default function App() {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const helpOpen = useStore((s) => s.helpOpen);
   const setHelpOpen = useStore((s) => s.setHelpOpen);
+  const workflowDialogOpen = useStore((s) => s.workflowDialogOpen);
+  const setWorkflowDialogOpen = useStore((s) => s.setWorkflowDialogOpen);
 
   // Same ordering as the sidebar, so j/k moves the way the eye does.
   const orderedRunIds = useCallback(() => {
@@ -143,6 +149,7 @@ export default function App() {
       </main>
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
+      {workflowDialogOpen && <WorkflowDialog onClose={() => setWorkflowDialogOpen(false)} />}
     </div>
   );
 }

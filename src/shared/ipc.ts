@@ -9,8 +9,14 @@ export const IPC = {
   pickDirectory: 'dialog:pick-directory',
   revealPath: 'shell:reveal',
   rescan: 'app:rescan',
+  workflowList: 'workflow:list',
+  workflowStart: 'workflow:start',
+  workflowCancel: 'workflow:cancel',
+  workflowDelete: 'workflow:delete',
+  orchestratorConfig: 'orchestrator:config',
   // main → renderer
   snapshot: 'event:snapshot',
   run: 'event:run',
   statusChange: 'event:status-change',
+  workflow: 'event:workflow',
 } as const;

@@ -158,6 +158,8 @@ export interface Settings {
   /** Seconds without log activity before a running agent is considered idle. */
   activeWindowSeconds: number;
   pricing: Record<string, ModelPricing>;
+  /** Path to the Claude Code CLI used to run workflows. Empty means auto-detect. */
+  claudeBinary: string;
 }
 
 export interface AgentStatusChange {
@@ -167,4 +169,87 @@ export interface AgentStatusChange {
   projectName: string;
   from: AgentStatus;
   to: AgentStatus;
+}
+
+/* ---------- Orchestration ---------- */
+
+/** What a role may do on the machine. Mapped to Claude Code permission flags. */
+export type RolePermission = 'read-only' | 'edit' | 'full';
+
+export interface RoleDefinition {
+  id: string;
+  name: string;
+  /** One line shown in the UI. */
+  description: string;
+  /** Appended to the agent's system prompt. */
+  systemPrompt: string;
+  permission: RolePermission;
+  /** Extra tool patterns to allow beyond the permission preset, e.g. "Bash(npm test:*)". */
+  extraTools?: string[];
+  model?: string;
+  maxTurns?: number;
+  /** True for the roles that ship with AgentLens. */
+  builtIn?: boolean;
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  /** Roles run in this order; each one receives the previous step's output. */
+  roleIds: string[];
+  builtIn?: boolean;
+}
+
+export type StepStatus = 'pending' | 'running' | 'finished' | 'errored' | 'cancelled';
+export type WorkflowStatus = 'running' | 'finished' | 'errored' | 'cancelled';
+
+export interface WorkflowStep {
+  id: string;
+  roleId: string;
+  /** Prompt handed to the agent (goal plus previous output). */
+  prompt: string;
+  status: StepStatus;
+  /** Claude Code session id; equals the run id in the sidebar once the log exists. */
+  sessionId: string;
+  startedAt?: number;
+  endedAt?: number;
+  /** Final assistant text of the step. Handed to the next role. */
+  output?: string;
+  /** Latest assistant text while running, for the live card. */
+  liveText?: string;
+  /** Latest tool call summary while running. */
+  currentAction?: string;
+  error?: string;
+  costUsd?: number;
+  turns?: number;
+}
+
+export interface WorkflowRun {
+  id: string;
+  name: string;
+  goal: string;
+  cwd: string;
+  templateId?: string;
+  status: WorkflowStatus;
+  steps: WorkflowStep[];
+  createdAt: number;
+  updatedAt: number;
+  error?: string;
+}
+
+export interface WorkflowStartRequest {
+  goal: string;
+  cwd: string;
+  /** Either a template or an explicit role sequence. */
+  templateId?: string;
+  roleIds?: string[];
+  name?: string;
+}
+
+export interface OrchestratorConfig {
+  roles: RoleDefinition[];
+  templates: WorkflowTemplate[];
+  /** Resolved path of the Claude Code binary, or undefined when none was found. */
+  claudeBinary?: string;
 }
