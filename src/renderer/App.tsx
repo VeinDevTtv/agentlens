@@ -1,12 +1,16 @@
 import { AlertTriangle, FolderSearch, Inbox, Loader2 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { EmptyState } from './components/EmptyState';
 import { Header } from './components/Header';
+import { HelpOverlay } from './components/HelpOverlay';
+import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
 import { SidePanel } from './components/SidePanel';
+import { Timeline } from './components/Timeline';
 import { Topology } from './components/Topology';
-import { useClock, useMonitor, useSelectedRun, useTheme } from './hooks';
+import { useClock, useKeyboardShortcuts, useMonitor, useNotifications, useSelectedRun, useTheme } from './hooks';
 import { bridge } from './lib/bridge';
+import { groupByProject, matchesFilters, sortRuns } from './lib/selectors';
 import { useStore } from './store';
 
 function SourcesEmptyState() {
@@ -96,9 +100,7 @@ function MainArea() {
       {view === 'topology' ? (
         <Topology agents={detail.agents} now={now} selectedAgentId={selectedAgentId} onSelect={selectAgent} />
       ) : (
-        <EmptyState icon={Inbox} title="Timeline view">
-          <p>Coming in the next phase.</p>
-        </EmptyState>
+        <Timeline agents={detail.agents} now={now} selectedAgentId={selectedAgentId} onSelect={selectAgent} />
       )}
       {selectedAgent && <SidePanel key={selectedAgent.id} agent={selectedAgent} run={detail.run} onClose={() => selectAgent(undefined)} />}
     </div>
@@ -110,24 +112,27 @@ export default function App() {
   useSelectedRun();
   useClock();
   useTheme();
+  useNotifications();
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const selectedRunId = useStore((s) => s.selectedRunId);
   const run = useStore((s) => s.snapshot?.runs.find((r) => r.id === selectedRunId));
   const detail = useStore((s) => (selectedRunId ? s.details[selectedRunId] : undefined));
+  const settingsOpen = useStore((s) => s.settingsOpen);
+  const setSettingsOpen = useStore((s) => s.setSettingsOpen);
+  const helpOpen = useStore((s) => s.helpOpen);
+  const setHelpOpen = useStore((s) => s.setHelpOpen);
 
-  const selectAgent = useStore((s) => s.selectAgent);
+  // Same ordering as the sidebar, so j/k moves the way the eye does.
+  const orderedRunIds = useCallback(() => {
+    const s = useStore.getState();
+    const runs = (s.snapshot?.runs ?? []).filter((r) => matchesFilters(r, s)).sort(sortRuns);
+    return groupByProject(runs).flatMap((g) => (s.collapsedProjects[g.name] ? [] : g.runIds));
+  }, []);
+  useKeyboardShortcuts(orderedRunIds);
 
   useEffect(() => {
     if (bridge()?.platform === 'darwin') document.documentElement.classList.add('mac');
   }, []);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') selectAgent(undefined);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectAgent]);
 
   return (
     <div className={`app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
@@ -136,6 +141,8 @@ export default function App() {
         <Header run={run} detail={detail} />
         <MainArea />
       </main>
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }

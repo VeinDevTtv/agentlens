@@ -84,3 +84,100 @@ export function useTheme(): void {
     return () => media.removeEventListener('change', apply);
   }, [theme]);
 }
+
+/** Global keyboard shortcuts. Ignored while typing in a field, except Escape. */
+export function useKeyboardShortcuts(orderedRunIds: () => string[]): void {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const state = useStore.getState();
+      const target = event.target as HTMLElement | null;
+      const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+      const dialogOpen = state.settingsOpen || state.helpOpen;
+
+      if (event.key === 'Escape') {
+        if (state.helpOpen) state.setHelpOpen(false);
+        else if (state.settingsOpen) state.setSettingsOpen(false);
+        else if (state.selectedAgentId) state.selectAgent(undefined);
+        else if (typing) (target as HTMLInputElement).blur();
+        else if (state.search) state.setSearch('');
+        return;
+      }
+      if (typing || dialogOpen || event.metaKey || event.ctrlKey || event.altKey) return;
+
+      switch (event.key) {
+        case '/':
+          event.preventDefault();
+          document.getElementById('run-search')?.focus();
+          break;
+        case '?':
+          event.preventDefault();
+          state.setHelpOpen(true);
+          break;
+        case ',':
+          event.preventDefault();
+          state.setSettingsOpen(true);
+          break;
+        case 'j':
+        case 'k': {
+          event.preventDefault();
+          const ids = orderedRunIds();
+          if (!ids.length) return;
+          const index = state.selectedRunId ? ids.indexOf(state.selectedRunId) : -1;
+          const next = event.key === 'j' ? Math.min(ids.length - 1, index + 1) : Math.max(0, index <= 0 ? 0 : index - 1);
+          const id = ids[next];
+          if (id) {
+            state.selectRun(id);
+            document.querySelector<HTMLElement>(`[data-run-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+          }
+          break;
+        }
+        case 'Enter': {
+          const detail = state.selectedRunId ? state.details[state.selectedRunId] : undefined;
+          const main = detail?.agents.find((a) => a.role === 'main') ?? detail?.agents[0];
+          if (main) state.selectAgent(main.id);
+          break;
+        }
+        case '1':
+          state.setView('topology');
+          break;
+        case '2':
+          state.setView('timeline');
+          break;
+        case '[':
+          state.toggleSidebar();
+          break;
+        case 'a':
+          state.toggleActiveOnly();
+          break;
+        case 'r':
+          void bridge()?.rescan();
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [orderedRunIds]);
+}
+
+/** Desktop notifications for finish/error transitions, when enabled in Settings. */
+export function useNotifications(): void {
+  useEffect(() => {
+    const api = bridge();
+    if (!api) return;
+    return api.onStatusChange((changes) => {
+      const state = useStore.getState();
+      if (!state.settings.notifications || typeof Notification === 'undefined' || Notification.permission === 'denied') return;
+      for (const change of changes.slice(0, 3)) {
+        const title = change.to === 'errored' ? `Agent errored · ${change.projectName}` : `Agent finished · ${change.projectName}`;
+        const notification = new Notification(title, { body: change.title, silent: change.to !== 'errored', tag: `${change.runId}:${change.agentId}` });
+        notification.onclick = () => {
+          const current = useStore.getState();
+          current.selectRun(change.runId);
+          if (change.agentId !== change.runId) setTimeout(() => useStore.getState().selectAgent(change.agentId), 400);
+        };
+      }
+    });
+  }, []);
+}
