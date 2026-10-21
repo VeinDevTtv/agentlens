@@ -9,3 +9,4 @@ export * from './claude/session';
 export * from './codex/session';
 export * from './roles';
 export * from './workflow';
+export * from './chat';

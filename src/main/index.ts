@@ -1,5 +1,6 @@
 import { app, BrowserWindow, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
+import { ChatService } from './chat';
 import { registerIpc } from './ipc';
 import { Monitor } from './monitor';
 import { Orchestrator } from './orchestrator';
@@ -48,7 +49,8 @@ void app.whenReady().then(async () => {
   const settings = new SettingsStore();
   const monitor = new Monitor(settings.get());
   const orchestrator = new Orchestrator(app.getPath('userData'), settings.get());
-  registerIpc(monitor, settings, orchestrator);
+  const chats = new ChatService(app.getPath('userData'), settings.get(), orchestrator);
+  registerIpc(monitor, settings, orchestrator, chats);
   createWindow(settings);
   await monitor.start();
 
@@ -56,6 +58,7 @@ void app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(settings);
   });
   app.on('before-quit', () => {
+    chats.stop();
     orchestrator.stop();
     monitor.stop();
   });

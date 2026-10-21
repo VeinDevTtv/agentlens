@@ -25,9 +25,10 @@ Agent harnesses write detailed JSONL transcripts, but they are hard to read and 
 | Agent cards | Task title, status (Running / Idle / Finished / Errored), "Now:" item from the todo list, current action, elapsed time, tokens, tool count, model badge |
 | Side panel | Task and full prompt, Timeline, Tool calls with result previews, Files touched, Token breakdown with per-model cost |
 | Timeline | Horizontal Gantt of agent lifetimes with spawn markers and a now line |
+| Chat | Talk to Claude about a project; a read-only Conductor answers questions itself and starts workflows when you ask for work to be done, then reports back |
 | Workflows | Run role-based agent workflows (Planner → Coder → Reviewer, or your own roles) as headless Claude Code sessions, each visible in the sidebar like any other run |
 | Settings | Session directories, light/dark/system theme, desktop notifications, idle window, editable per-model pricing, Claude Code CLI path |
-| Keyboard | `/` search, `j`/`k` move, `Enter` open, `Esc` close, `1`/`2` views, `n` new workflow, `?` help |
+| Keyboard | `/` search, `j`/`k` move, `Enter` open, `Esc` close, `1`/`2` views, `n` new workflow, `c` new chat, `?` help |
 
 ![Side panel](docs/screenshots/side-panel.png)
 *Side panel on a subagent: the prompt it received, its tool calls, and token cost.*
@@ -83,6 +84,38 @@ How the pieces are derived:
 - **Subagent task:** the `description` and `prompt` from the parent's `Agent` (or legacy `Task`) tool call, matched through the subagent's `.meta.json` or, for older logs, by prompt text.
 - **Status:** *Running* while the log changed within the idle window (45 s by default), *Finished* when the subagent handed back or the session is old, *Errored* on an API error or a failing final tool call, *Idle* otherwise.
 - **Cost:** token counts from the logs times the per-model prices in Settings. Models without a price show "Set pricing" instead of a guess.
+
+## Chat
+
+AgentLens is also the place you open to talk to Claude about a project. Press `c` (or click **New chat** in the sidebar), pick a working directory, and start typing.
+
+The other side of the conversation is the **Conductor**: a headless Claude Code session (`claude -p`) started with a fixed `--session-id` and continued with `--resume` on every message. It runs with the same flags as the `read-only` permission level (see [Permission levels](#permission-levels)) and is limited to 25 turns per reply.
+
+The Conductor answers questions and reads the code itself, but it never edits files or runs commands. When you ask for work to be done, it ends its reply with a fenced `agentlens` block:
+
+````
+```agentlens
+{"action":"run-workflow","templateId":"plan-build-review","goal":"<self-contained goal>"}
+```
+````
+
+Use `"roleIds": ["planner", "coder"]` instead of `templateId` for a custom sequence. AgentLens then:
+
+1. Removes the block from the reply you see.
+2. Starts the workflow in the chat's working directory and adds a "Started workflow" event to the chat. Click it to open the workflow.
+3. When the workflow ends, sends the Conductor each step's status and the final output, and the Conductor summarises the result for you.
+
+If a block is malformed (invalid JSON, unknown action, no goal, or no template or roles), it stays visible in the reply and an error note explains why.
+
+| Key | Action |
+| --- | --- |
+| `c` | New chat |
+| `Enter` | Send |
+| `Shift+Enter` | New line |
+
+- Chats are saved as one JSON file each in `<userData>/chats/`. A reply that was still in progress when AgentLens closed is marked errored on the next launch.
+- **Stop** cancels the reply in progress.
+- Each message is a Claude Code turn billed to your own Claude account. Nothing goes through AgentLens servers; there are none.
 
 ## Workflows
 

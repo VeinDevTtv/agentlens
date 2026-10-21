@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { IPC } from '../shared/ipc';
 import type { WorkflowStartRequest } from '../shared/types';
+import type { ChatService } from './chat';
 import type { Monitor } from './monitor';
 import type { Orchestrator } from './orchestrator';
 import type { SettingsStore } from './settings';
@@ -21,7 +22,7 @@ function toStartRequest(raw: unknown): WorkflowStartRequest {
   };
 }
 
-export function registerIpc(monitor: Monitor, settings: SettingsStore, orchestrator: Orchestrator): void {
+export function registerIpc(monitor: Monitor, settings: SettingsStore, orchestrator: Orchestrator, chats: ChatService): void {
   ipcMain.handle(IPC.snapshotGet, () => monitor.snapshot());
   ipcMain.handle(IPC.runLoad, (_event, runId: unknown) => (typeof runId === 'string' ? monitor.loadRun(runId) : undefined));
   ipcMain.handle(IPC.runTokens, (_event, runId: unknown) => (typeof runId === 'string' ? monitor.loadRunTokens(runId) : undefined));
@@ -31,6 +32,7 @@ export function registerIpc(monitor: Monitor, settings: SettingsStore, orchestra
     const saved = settings.set(next);
     await monitor.updateSettings(saved);
     orchestrator.updateSettings(saved);
+    chats.updateSettings(saved);
     return saved;
   });
   ipcMain.handle(IPC.pickDirectory, async (event, current: unknown) => {
@@ -52,6 +54,20 @@ export function registerIpc(monitor: Monitor, settings: SettingsStore, orchestra
   });
   ipcMain.handle(IPC.orchestratorConfig, () => orchestrator.config());
 
+  ipcMain.handle(IPC.chatList, () => chats.list());
+  ipcMain.handle(IPC.chatCreate, (_event, raw: unknown) => {
+    if (!isObject(raw) || typeof raw.cwd !== 'string') throw new Error('Invalid chat request');
+    return chats.create({ cwd: raw.cwd, ...(typeof raw.title === 'string' ? { title: raw.title } : {}) });
+  });
+  ipcMain.handle(IPC.chatSend, (_event, raw: unknown) => {
+    if (!isObject(raw) || typeof raw.chatId !== 'string' || typeof raw.text !== 'string') throw new Error('Invalid message');
+    return chats.send(raw.chatId, raw.text);
+  });
+  ipcMain.handle(IPC.chatCancel, (_event, id: unknown) => (typeof id === 'string' ? chats.cancel(id) : undefined));
+  ipcMain.handle(IPC.chatDelete, (_event, id: unknown) => {
+    if (typeof id === 'string') chats.delete(id);
+  });
+
   const broadcast = (channel: string, payload: unknown) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send(channel, payload);
@@ -61,4 +77,5 @@ export function registerIpc(monitor: Monitor, settings: SettingsStore, orchestra
   monitor.on('run', (detail) => broadcast(IPC.run, detail));
   monitor.on('status-change', (changes) => broadcast(IPC.statusChange, changes));
   orchestrator.on('workflow', (workflow) => broadcast(IPC.workflow, workflow));
+  chats.on('chat', (chat) => broadcast(IPC.chat, chat));
 }

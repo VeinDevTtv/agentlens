@@ -1,7 +1,7 @@
-import { ChevronDown, ChevronRight, Eye, EyeOff, Keyboard, Play, RefreshCw, Search, Settings as SettingsIcon, Telescope, X, Zap } from 'lucide-react';
+import { ChevronDown, ChevronRight, Eye, EyeOff, Keyboard, MessageSquarePlus, Play, RefreshCw, Search, Settings as SettingsIcon, Telescope, X, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { totalTokens } from '../../core/tokens';
-import type { RunSummary, WorkflowRun, WorkflowStatus } from '../../shared/types';
+import type { Chat, ChatStatus, RunSummary, WorkflowRun, WorkflowStatus } from '../../shared/types';
 import { bridge } from '../lib/bridge';
 import { formatCompact, formatRelative, shortModel } from '../lib/format';
 import { groupByProject, matchesFilters, projectNames, sortRuns } from '../lib/selectors';
@@ -107,12 +107,42 @@ function WorkflowRow({ workflow, selected, now, onSelect }: { workflow: Workflow
   );
 }
 
+const CHAT_DOT: Record<ChatStatus, string> = { thinking: 'running', 'waiting-workflow': 'idle', idle: 'finished' };
+const CHAT_LABEL: Record<ChatStatus, string> = { thinking: 'Thinking', 'waiting-workflow': 'Waiting for workflow', idle: 'Idle' };
+const CHATS_GROUP = '__chats';
+
+function basename(path: string): string {
+  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+}
+
+function ChatRow({ chat, selected, now, onSelect }: { chat: Chat; selected: boolean; now: number; onSelect: (id: string) => void }) {
+  return (
+    <button type="button" role="option" aria-selected={selected} className="run-row chat-row" data-chat-id={chat.id} onClick={() => onSelect(chat.id)} title={`${chat.title}\n${chat.cwd}`}>
+      <span className={`status-dot ${CHAT_DOT[chat.status]}`} aria-hidden="true" />
+      <span style={{ minWidth: 0 }}>
+        <span className="title">{chat.title}</span>
+        <span className="sub">
+          <span className="sr-only">{CHAT_LABEL[chat.status]}.</span>
+          <span>{basename(chat.cwd)}</span>
+        </span>
+      </span>
+      <span className="right">
+        <span>{formatRelative(chat.updatedAt, now)}</span>
+      </span>
+    </button>
+  );
+}
+
 export function Sidebar() {
   const snapshot = useStore((s) => s.snapshot);
   const workflows = useStore((s) => s.workflows);
   const selectedWorkflowId = useStore((s) => s.selectedWorkflowId);
   const selectWorkflow = useStore((s) => s.selectWorkflow);
   const setWorkflowDialogOpen = useStore((s) => s.setWorkflowDialogOpen);
+  const chats = useStore((s) => s.chats);
+  const selectedChatId = useStore((s) => s.selectedChatId);
+  const selectChat = useStore((s) => s.selectChat);
+  const setChatDialogOpen = useStore((s) => s.setChatDialogOpen);
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
   const projectFilter = useStore((s) => s.projectFilter);
@@ -152,6 +182,9 @@ export function Sidebar() {
           <span className="version">{runningCount > 0 ? `${runningCount} running` : ''}</span>
           <button type="button" className="btn small new-workflow" onClick={() => setWorkflowDialogOpen(true)} title="New workflow (n)">
             <Play size={12} aria-hidden="true" /> New workflow
+          </button>
+          <button type="button" className="btn small new-chat" onClick={() => setChatDialogOpen(true)} title="New chat (c)">
+            <MessageSquarePlus size={12} aria-hidden="true" /> Chat
           </button>
         </div>
         <div className="search">
@@ -214,7 +247,20 @@ export function Sidebar() {
           )}
         </div>
       </div>
-      <div className="run-list" role="listbox" aria-label="Runs grouped by project" aria-activedescendant={selectedWorkflowId ?? selectedRunId}>
+      <div className="run-list" role="listbox" aria-label="Runs grouped by project" aria-activedescendant={selectedChatId ?? selectedWorkflowId ?? selectedRunId}>
+        {chats.length > 0 && (
+          <section className="project-group chats-group">
+            <button type="button" className="project-header" onClick={() => toggleProject(CHATS_GROUP)} aria-expanded={!collapsed[CHATS_GROUP]} title="Conductor chats">
+              {collapsed[CHATS_GROUP] ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+              <span className="name">Chats</span>
+              <span className="meta">
+                {chats.some((c) => c.status !== 'idle') && <span className="running-dot" title="A conductor is working" />}
+                <span>{chats.length}</span>
+              </span>
+            </button>
+            {!collapsed[CHATS_GROUP] && chats.map((c) => <ChatRow key={c.id} chat={c} now={now} selected={c.id === selectedChatId} onSelect={selectChat} />)}
+          </section>
+        )}
         {workflows.length > 0 && (
           <section className="project-group workflows-group">
             <button type="button" className="project-header" onClick={() => toggleProject(WORKFLOWS_GROUP)} aria-expanded={!collapsed[WORKFLOWS_GROUP]} title="Workflows started from AgentLens">

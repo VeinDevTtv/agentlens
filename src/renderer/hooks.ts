@@ -11,6 +11,8 @@ export function useMonitor(): void {
   const setWorkflows = useStore((s) => s.setWorkflows);
   const upsertWorkflow = useStore((s) => s.upsertWorkflow);
   const setOrchestratorConfig = useStore((s) => s.setOrchestratorConfig);
+  const setChats = useStore((s) => s.setChats);
+  const upsertChat = useStore((s) => s.upsertChat);
 
   useEffect(() => {
     const api = bridge();
@@ -32,16 +34,22 @@ export function useMonitor(): void {
       .getOrchestratorConfig()
       .then((config) => !cancelled && setOrchestratorConfig(config))
       .catch(() => undefined);
+    void api
+      .listChats()
+      .then((chats) => !cancelled && setChats(chats))
+      .catch(() => undefined);
     const offSnapshot = api.onSnapshot((snapshot) => setSnapshot(snapshot));
     const offRun = api.onRunUpdate((detail) => setDetail(detail));
     const offWorkflow = api.onWorkflowUpdate((workflow) => upsertWorkflow(workflow));
+    const offChat = api.onChatUpdate((chat) => upsertChat(chat));
     return () => {
       cancelled = true;
       offSnapshot();
       offRun();
       offWorkflow();
+      offChat();
     };
-  }, [setSnapshot, setSnapshotError, setDetail, setSettings, setWorkflows, upsertWorkflow, setOrchestratorConfig]);
+  }, [setSnapshot, setSnapshotError, setDetail, setSettings, setWorkflows, upsertWorkflow, setOrchestratorConfig, setChats, upsertChat]);
 }
 
 /** Load the selected run's detail and tell the main process to keep it fresh. */
@@ -105,12 +113,13 @@ export function useKeyboardShortcuts(orderedRunIds: () => string[]): void {
       const state = useStore.getState();
       const target = event.target as HTMLElement | null;
       const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
-      const dialogOpen = state.settingsOpen || state.helpOpen || state.workflowDialogOpen;
+      const dialogOpen = state.settingsOpen || state.helpOpen || state.workflowDialogOpen || state.chatDialogOpen;
 
       if (event.key === 'Escape') {
         if (state.helpOpen) state.setHelpOpen(false);
         else if (state.settingsOpen) state.setSettingsOpen(false);
         else if (state.workflowDialogOpen) state.setWorkflowDialogOpen(false);
+        else if (state.chatDialogOpen) state.setChatDialogOpen(false);
         else if (state.selectedAgentId) state.selectAgent(undefined);
         else if (typing) (target as HTMLInputElement).blur();
         else if (state.search) state.setSearch('');
@@ -134,6 +143,10 @@ export function useKeyboardShortcuts(orderedRunIds: () => string[]): void {
         case 'n':
           event.preventDefault();
           state.setWorkflowDialogOpen(true);
+          break;
+        case 'c':
+          event.preventDefault();
+          state.setChatDialogOpen(true);
           break;
         case 'j':
         case 'k': {

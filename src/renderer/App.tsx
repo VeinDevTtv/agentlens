@@ -1,8 +1,10 @@
 import { AlertTriangle, FolderSearch, Inbox, Loader2 } from 'lucide-react';
 import { useCallback, useEffect } from 'react';
+import { ChatView } from './components/ChatView';
 import { EmptyState } from './components/EmptyState';
 import { Header } from './components/Header';
 import { HelpOverlay } from './components/HelpOverlay';
+import { NewChatDialog } from './components/NewChatDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
 import { SidePanel } from './components/SidePanel';
@@ -57,9 +59,11 @@ function MainArea() {
   const view = useStore((s) => s.view);
   const now = useStore((s) => s.now);
   const selectedWorkflow = useStore((s) => (s.selectedWorkflowId ? s.workflows.find((w) => w.id === s.selectedWorkflowId) : undefined));
+  const selectedChat = useStore((s) => (s.selectedChatId ? s.chats.find((c) => c.id === s.selectedChatId) : undefined));
   const run = snapshot?.runs.find((r) => r.id === selectedRunId);
   const selectedAgent = detail?.agents.find((a) => a.id === selectedAgentId);
 
+  if (selectedChat) return <ChatView key={selectedChat.id} chat={selectedChat} />;
   if (selectedWorkflow) return <WorkflowView key={selectedWorkflow.id} workflow={selectedWorkflow} />;
   if (snapshotError) {
     return (
@@ -127,6 +131,8 @@ export default function App() {
   const setHelpOpen = useStore((s) => s.setHelpOpen);
   const workflowDialogOpen = useStore((s) => s.workflowDialogOpen);
   const setWorkflowDialogOpen = useStore((s) => s.setWorkflowDialogOpen);
+  const chatDialogOpen = useStore((s) => s.chatDialogOpen);
+  const setChatDialogOpen = useStore((s) => s.setChatDialogOpen);
 
   // Same ordering as the sidebar, so j/k moves the way the eye does.
   const orderedRunIds = useCallback(() => {
@@ -150,6 +156,7 @@ export default function App() {
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
       {workflowDialogOpen && <WorkflowDialog onClose={() => setWorkflowDialogOpen(false)} />}
+      {chatDialogOpen && <NewChatDialog onClose={() => setChatDialogOpen(false)} />}
     </div>
   );
 }

@@ -1,10 +1,11 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { DEFAULT_TEMPLATES, applyEvent, createWorkflow, markInterrupted, mergeRoles, nextPendingStep, parseStreamLine, stepArgs, workflowName, type WorkflowEvent } from '../core';
+import { DEFAULT_TEMPLATES, applyEvent, createWorkflow, markInterrupted, mergeRoles, nextPendingStep, stepArgs, workflowName, type WorkflowEvent } from '../core';
+import { killClaude, runClaude } from './claude-process';
 import type { OrchestratorConfig, RoleDefinition, Settings, WorkflowRun, WorkflowStartRequest, WorkflowTemplate } from '../shared/types';
 
 export interface OrchestratorEvents {
@@ -63,6 +64,14 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
     return { roles: this.roles, templates: this.templates, ...(claudeBinary ? { claudeBinary } : {}) };
   }
 
+  rolesList(): RoleDefinition[] {
+    return this.roles;
+  }
+
+  templatesList(): WorkflowTemplate[] {
+    return this.templates;
+  }
+
   roleProblemsList(): string[] {
     return this.roleProblems;
   }
@@ -97,6 +106,7 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
       sessionIds: roles.map(() => randomUUID()),
       now: Date.now(),
     });
+    if (request.chatId) workflow.chatId = request.chatId;
     this.commit(workflow);
     this.advance(workflow.id, binary);
     return workflow;
@@ -108,10 +118,7 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
     const child = this.processes.get(id);
     if (child) {
       this.processes.delete(id);
-      child.kill('SIGTERM');
-      setTimeout(() => {
-        if (!child.killed && child.exitCode === null) child.kill('SIGKILL');
-      }, 3000).unref();
+      killClaude(child);
     }
     return this.commit(applyEvent(workflow, { type: 'cancelled', at: Date.now() }, this.roles));
   }
@@ -154,72 +161,46 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
     const step = workflow?.steps[index];
     if (!workflow || !step) return;
 
-    // A Claude Code session refuses to start inside another one; the app may have been launched from a terminal session.
-    const env = { ...process.env };
-    delete env.CLAUDECODE;
-    delete env.CLAUDE_CODE_ENTRYPOINT;
-
+    let lastText = '';
     let child: ChildProcess;
     try {
-      child = spawn(binary, stepArgs(role, step.sessionId, step.prompt), { cwd: workflow.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+      child = runClaude(binary, stepArgs(role, step.sessionId, step.prompt), workflow.cwd, {
+        onSignal: (signal) => {
+          if (signal.kind === 'assistant-text') {
+            lastText = signal.text;
+            this.progress(id, index, { liveText: signal.text.length > MAX_LIVE_TEXT ? signal.text.slice(0, MAX_LIVE_TEXT) + '…' : signal.text });
+          } else if (signal.kind === 'tool-call') {
+            this.progress(id, index, { currentAction: signal.summary });
+          }
+        },
+        onError: (error) => {
+          if (this.processes.get(id) !== child) return;
+          this.processes.delete(id);
+          this.fail(id, index, `Could not start Claude Code: ${error.message}`);
+        },
+        onExit: ({ code, result, stderr }) => {
+          if (this.processes.get(id) !== child) return; // cancelled
+          this.processes.delete(id);
+          const current = this.workflows.get(id);
+          if (!current || current.steps[index]?.status !== 'running') return;
+          if (result && !result.isError) {
+            const output = result.text.trim() || lastText.trim();
+            const finished: WorkflowEvent = { type: 'step-finished', stepIndex: index, at: Date.now(), output };
+            if (result.costUsd !== undefined) finished.costUsd = result.costUsd;
+            if (result.turns !== undefined) finished.turns = result.turns;
+            this.commit(applyEvent(current, finished, this.roles));
+            this.advance(id, binary);
+            return;
+          }
+          const reason = result?.isError ? result.text || 'Claude Code reported an error' : `Claude Code exited with code ${code ?? 'unknown'}`;
+          this.fail(id, index, stderr ? `${reason}\n${stderr.split('\n').slice(-5).join('\n')}` : reason);
+        },
+      });
     } catch (error) {
       this.fail(id, index, error instanceof Error ? error.message : String(error));
       return;
     }
     this.processes.set(id, child);
-
-    let buffer = '';
-    let lastText = '';
-    let result: { isError: boolean; text: string; costUsd?: number; turns?: number } | undefined;
-    let stderr = '';
-    const handle = (line: string) => {
-      for (const signal of parseStreamLine(line)) {
-        if (signal.kind === 'assistant-text') {
-          lastText = signal.text;
-          this.progress(id, index, { liveText: signal.text.length > MAX_LIVE_TEXT ? signal.text.slice(0, MAX_LIVE_TEXT) + '…' : signal.text });
-        } else if (signal.kind === 'tool-call') {
-          this.progress(id, index, { currentAction: signal.summary });
-        } else if (signal.kind === 'result') {
-          result = signal;
-        }
-      }
-    };
-    child.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
-      buffer += chunk;
-      let newline = buffer.indexOf('\n');
-      while (newline !== -1) {
-        handle(buffer.slice(0, newline));
-        buffer = buffer.slice(newline + 1);
-        newline = buffer.indexOf('\n');
-      }
-    });
-    child.stderr?.setEncoding('utf8').on('data', (chunk: string) => {
-      stderr = (stderr + chunk).slice(-4000);
-    });
-    child.on('error', (error) => {
-      if (this.processes.get(id) !== child) return;
-      this.processes.delete(id);
-      this.fail(id, index, `Could not start Claude Code: ${error.message}`);
-    });
-    child.on('close', (code) => {
-      if (this.processes.get(id) !== child) return; // cancelled
-      this.processes.delete(id);
-      if (buffer.trim()) handle(buffer);
-      const current = this.workflows.get(id);
-      if (!current || current.steps[index]?.status !== 'running') return;
-      if (result && !result.isError) {
-        const output = result.text.trim() || lastText.trim();
-        const finished: WorkflowEvent = { type: 'step-finished', stepIndex: index, at: Date.now(), output };
-        if (result.costUsd !== undefined) finished.costUsd = result.costUsd;
-        if (result.turns !== undefined) finished.turns = result.turns;
-        this.commit(applyEvent(current, finished, this.roles));
-        this.advance(id, binary);
-        return;
-      }
-      const reason = result?.isError ? result.text || 'Claude Code reported an error' : `Claude Code exited with code ${code ?? 'unknown'}`;
-      const detail = stderr.trim() ? `${reason}\n${stderr.trim().split('\n').slice(-5).join('\n')}` : reason;
-      this.fail(id, index, detail);
-    });
   }
 
   private progress(id: string, index: number, patch: { liveText?: string; currentAction?: string }): void {

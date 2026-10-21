@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { DEFAULT_PRICING } from '../core/pricing';
-import type { AgentStatus, OrchestratorConfig, Provider, RunDetail, RunSummary, Settings, Snapshot, WorkflowRun } from '../shared/types';
+import type { AgentStatus, Chat, OrchestratorConfig, Provider, RunDetail, RunSummary, Settings, Snapshot, WorkflowRun } from '../shared/types';
 
 export type StatusFilter = 'all' | AgentStatus;
 export type ProviderFilter = 'all' | Provider;
@@ -31,6 +31,9 @@ export interface UiState {
   orchestrator: OrchestratorConfig | undefined;
   selectedWorkflowId: string | undefined;
   workflowDialogOpen: boolean;
+  chats: Chat[];
+  selectedChatId: string | undefined;
+  chatDialogOpen: boolean;
 }
 
 export interface UiActions {
@@ -61,6 +64,11 @@ export interface UiActions {
   setOrchestratorConfig(config: OrchestratorConfig): void;
   selectWorkflow(id: string | undefined): void;
   setWorkflowDialogOpen(open: boolean): void;
+  setChats(chats: Chat[]): void;
+  upsertChat(chat: Chat): void;
+  removeChat(id: string): void;
+  selectChat(id: string | undefined): void;
+  setChatDialogOpen(open: boolean): void;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -98,11 +106,14 @@ export const useStore = create<UiState & UiActions>((set) => ({
   orchestrator: undefined,
   selectedWorkflowId: undefined,
   workflowDialogOpen: false,
+  chats: [],
+  selectedChatId: undefined,
+  chatDialogOpen: false,
 
   setSnapshot: (snapshot) => set({ snapshot, loading: false, snapshotError: undefined }),
   setSnapshotError: (snapshotError) => set({ snapshotError, loading: false }),
   setLoading: (loading) => set({ loading }),
-  selectRun: (selectedRunId) => set({ selectedRunId, selectedAgentId: undefined, selectedWorkflowId: undefined }),
+  selectRun: (selectedRunId) => set({ selectedRunId, selectedAgentId: undefined, selectedWorkflowId: undefined, selectedChatId: undefined }),
   selectAgent: (selectedAgentId) => set({ selectedAgentId }),
   setDetail: (detail) => set((state) => ({ details: { ...state.details, [detail.run.id]: detail }, detailLoading: false })),
   setDetailLoading: (detailLoading) => set({ detailLoading }),
@@ -137,6 +148,20 @@ export const useStore = create<UiState & UiActions>((set) => ({
       selectedWorkflowId: state.selectedWorkflowId === id ? undefined : state.selectedWorkflowId,
     })),
   setOrchestratorConfig: (orchestrator) => set({ orchestrator }),
-  selectWorkflow: (selectedWorkflowId) => set({ selectedWorkflowId, selectedRunId: undefined, selectedAgentId: undefined }),
+  selectWorkflow: (selectedWorkflowId) => set({ selectedWorkflowId, selectedRunId: undefined, selectedAgentId: undefined, selectedChatId: undefined }),
   setWorkflowDialogOpen: (workflowDialogOpen) => set({ workflowDialogOpen }),
+  setChats: (chats) => set({ chats: [...chats].sort((a, b) => b.updatedAt - a.updatedAt) }),
+  upsertChat: (chat) =>
+    set((state) => {
+      const exists = state.chats.some((c) => c.id === chat.id);
+      const chats = exists ? state.chats.map((c) => (c.id === chat.id ? chat : c)) : [chat, ...state.chats];
+      return { chats: chats.sort((a, b) => b.updatedAt - a.updatedAt) };
+    }),
+  removeChat: (id) =>
+    set((state) => ({
+      chats: state.chats.filter((c) => c.id !== id),
+      selectedChatId: state.selectedChatId === id ? undefined : state.selectedChatId,
+    })),
+  selectChat: (selectedChatId) => set({ selectedChatId, selectedRunId: undefined, selectedAgentId: undefined, selectedWorkflowId: undefined }),
+  setChatDialogOpen: (chatDialogOpen) => set({ chatDialogOpen }),
 }));

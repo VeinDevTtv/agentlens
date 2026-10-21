@@ -14,9 +14,15 @@ export const IPC = {
   workflowCancel: 'workflow:cancel',
   workflowDelete: 'workflow:delete',
   orchestratorConfig: 'orchestrator:config',
+  chatList: 'chat:list',
+  chatCreate: 'chat:create',
+  chatSend: 'chat:send',
+  chatCancel: 'chat:cancel',
+  chatDelete: 'chat:delete',
   // main → renderer
   snapshot: 'event:snapshot',
   run: 'event:run',
   statusChange: 'event:status-change',
   workflow: 'event:workflow',
+  chat: 'event:chat',
 } as const;

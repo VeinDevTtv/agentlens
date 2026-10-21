@@ -236,6 +236,8 @@ export interface WorkflowRun {
   createdAt: number;
   updatedAt: number;
   error?: string;
+  /** Chat that asked for this workflow, when started by the conductor. */
+  chatId?: string;
 }
 
 export interface WorkflowStartRequest {
@@ -245,6 +247,8 @@ export interface WorkflowStartRequest {
   templateId?: string;
   roleIds?: string[];
   name?: string;
+  /** Chat that asked for this workflow, when started by the conductor. */
+  chatId?: string;
 }
 
 export interface OrchestratorConfig {
@@ -252,4 +256,52 @@ export interface OrchestratorConfig {
   templates: WorkflowTemplate[];
   /** Resolved path of the Claude Code binary, or undefined when none was found. */
   claudeBinary?: string;
+}
+
+/* ---------- Chat (conductor) ---------- */
+
+export type ChatMessageKind = 'user' | 'assistant' | 'event';
+export type ChatStatus = 'idle' | 'thinking' | 'waiting-workflow';
+
+export interface ChatToolCall {
+  name: string;
+  summary: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  kind: ChatMessageKind;
+  text: string;
+  at: number;
+  /** Assistant: tool calls made while producing this reply. */
+  toolCalls?: ChatToolCall[];
+  /** Assistant: still streaming. */
+  pending?: boolean;
+  /** Event: the workflow this message refers to. */
+  workflowId?: string;
+  costUsd?: number;
+  error?: string;
+}
+
+export interface Chat {
+  id: string;
+  title: string;
+  cwd: string;
+  /** Conductor's Claude Code session id. Started with --session-id, continued with --resume. */
+  sessionId: string;
+  sessionStarted: boolean;
+  status: ChatStatus;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ChatCreateRequest {
+  cwd: string;
+  title?: string;
+}
+
+export interface ChatSendRequest {
+  chatId: string;
+  text: string;
 }
