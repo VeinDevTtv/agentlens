@@ -83,8 +83,19 @@ export function describeToolCall(name: string, rawInput: unknown, cwd?: string):
       const description = str(input, 'description');
       return { kind: 'delegate', summary: description ? `Delegating: ${truncate(description, 48)}` : 'Delegating to a subagent', writes: [] };
     }
+    case 'spawn_agent': {
+      const message = str(input, 'message');
+      return { kind: 'delegate', summary: message ? `Delegating: ${truncate(message, 48)}` : 'Delegating to a subagent', writes: [] };
+    }
+    case 'send_input':
     case 'SendMessage':
       return { kind: 'delegate', summary: 'Messaging a subagent', writes: [] };
+    case 'wait':
+      return { kind: 'delegate', summary: 'Waiting for subagents', writes: [] };
+    case 'resume_agent':
+      return { kind: 'delegate', summary: 'Resuming a subagent', writes: [] };
+    case 'close_agent':
+      return { kind: 'delegate', summary: 'Closing a subagent', writes: [] };
     case 'WebFetch': {
       const url = str(input, 'url');
       return { kind: 'web', summary: url ? `Fetching ${hostOf(url)}` : 'Fetching a web page', writes: [] };

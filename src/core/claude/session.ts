@@ -459,7 +459,8 @@ export interface ClaudeHeaderInput {
 /** Cheap discovery pass: enough to list a run without parsing the whole transcript. */
 export function parseClaudeHeader(input: ClaudeHeaderInput): RunSummary {
   const head = parseJsonl(input.headText);
-  const tail = input.tailText ? parseJsonl(input.tailText) : [];
+  // readHeadTail returns small files entirely in headText.
+  const tail = input.tailText ? parseJsonl(input.tailText) : head;
   let cwd: string | undefined;
   let gitBranch: string | undefined;
   let aiTitle: string | undefined;

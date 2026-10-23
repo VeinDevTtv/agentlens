@@ -1,0 +1,5 @@
+{"timestamp":"2026-03-02T14:02:00.000Z","type":"session_meta","payload":{"id":"codex-grandchild","cwd":"/home/dev/work/project","source":{"subagent":{"thread_spawn":{"parent_thread_id":"codex-child","depth":2,"agent_role":"worker"}}},"thread_source":"subagent"}}
+{"timestamp":"2026-03-02T14:02:01.000Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-03-02T14:02:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"Check nested agent coverage"}}
+{"timestamp":"2026-03-02T14:02:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":300,"cached_input_tokens":60,"output_tokens":30}}}}
+{"timestamp":"2026-03-02T14:02:04.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"npm test\"}","call_id":"nested-test"}}

@@ -2,7 +2,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 import { EventEmitter } from 'node:events';
 import { basename, dirname, sep } from 'node:path';
 import type { AgentStatus, AgentStatusChange, RunDetail, RunSummary, Settings, Snapshot } from '../shared/types';
-import { claudeHeader, codexHeader, discoverAll, loadRunDetail, type RunLocation } from './discovery';
+import { claudeHeader, codexRunHeader, discoverAll, loadRunDetail, type RunLocation } from './discovery';
 
 export interface MonitorEvents {
   snapshot: [Snapshot];
@@ -28,6 +28,8 @@ export class Monitor extends EventEmitter<MonitorEvents> {
   private tick: NodeJS.Timeout | undefined;
   private watchedRunId: string | undefined;
   private scanning: Promise<void> | undefined;
+  private codexScanning: Promise<void> | undefined;
+  private codexRescanRequested = false;
 
   constructor(private settings: Settings) {
     super();
@@ -57,8 +59,9 @@ export class Monitor extends EventEmitter<MonitorEvents> {
       this.runs = new Map();
       for (const run of result.runs) {
         const old = previous.get(run.id);
-        // Keep lazily loaded tokens across rescans when the file did not change.
-        this.runs.set(run.id, old?.tokensLoaded && old.lastActivityAt === run.lastActivityAt && old.tokens ? { ...run, tokens: old.tokens, tokensLoaded: true } : run);
+        // Codex membership can change without changing the latest timestamp, so
+        // its totals must be reloaded after rediscovering the tree.
+        this.runs.set(run.id, run.provider !== 'codex' && old?.tokensLoaded && old.lastActivityAt === run.lastActivityAt && old.tokens ? { ...run, tokens: old.tokens, tokensLoaded: true } : run);
       }
       this.locations = result.locations;
       this.sources = result.sources;
@@ -87,24 +90,57 @@ export class Monitor extends EventEmitter<MonitorEvents> {
 
   /** The renderer tells us which run is open so we re-parse it eagerly on change. */
   watchRun(runId: string | undefined): void {
-    this.watchedRunId = runId;
+    this.watchedRunId = runId === undefined ? undefined : this.rootRunId(runId);
   }
 
   async loadRun(runId: string): Promise<RunDetail | undefined> {
-    const location = this.locations.get(runId);
-    if (!location) return undefined;
-    const detail = await loadRunDetail(location, this.settings);
-    this.details.set(runId, detail);
-    this.recordStatuses(detail, false);
-    this.mergeRunSummary(detail.run);
-    return detail;
+    const { claudeSessionsDir, codexSessionsDir } = this.settings;
+    const sameSources = () => this.settings.claudeSessionsDir === claudeSessionsDir && this.settings.codexSessionsDir === codexSessionsDir;
+    // A public rescan can replace the graph while the first transcript read is
+    // in flight. Retry its current location once, without reviving removed runs
+    // or carrying a request across a change of configured session directories.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (this.scanning) await this.scanning;
+      if (!sameSources()) return undefined;
+      const location = this.locations.get(this.rootRunId(runId));
+      if (!location) return undefined;
+      let detail: RunDetail;
+      try {
+        detail = await loadRunDetail(location, this.settings);
+      } catch (error) {
+        if (this.scanning) await this.scanning;
+        if (!sameSources()) return undefined;
+        if (!this.locationIsCurrent(location)) continue;
+        throw error;
+      }
+      if (this.scanning) await this.scanning;
+      if (!sameSources()) return undefined;
+      if (this.scanning || !this.locationIsCurrent(location)) continue;
+      this.details.set(location.id, detail);
+      this.recordStatuses(detail, false);
+      this.mergeRunSummary(detail.run);
+      return detail;
+    }
+    return undefined;
   }
 
   async loadRunTokens(runId: string): Promise<RunSummary | undefined> {
+    runId = this.rootRunId(runId);
     const existing = this.runs.get(runId);
     if (existing?.tokensLoaded) return existing;
     const detail = this.details.get(runId) ?? (await this.loadRun(runId));
-    return detail ? this.runs.get(runId) : undefined;
+    return detail ? this.runs.get(detail.run.id) : undefined;
+  }
+
+  private rootRunId(runId: string): string {
+    return this.locations.get(runId)?.rootRunId ?? runId;
+  }
+
+  private locationIsCurrent(location: RunLocation): boolean {
+    const current = this.locations.get(location.id);
+    // Codex location identity includes the discovered descendant list. A tree
+    // rescan does not invalidate an unrelated Claude file at the same path.
+    return current === location || (location.provider === 'claude' && current?.provider === 'claude' && current.filePath === location.filePath);
   }
 
   private mergeRunSummary(run: RunSummary): void {
@@ -156,7 +192,7 @@ export class Monitor extends EventEmitter<MonitorEvents> {
   private runIdForPath(path: string): { runId: string | undefined; provider: 'claude' | 'codex' } {
     const codexDir = this.settings.codexSessionsDir;
     if (path.startsWith(codexDir + sep) || path.startsWith(codexDir + '/')) {
-      for (const location of this.locations.values()) if (location.filePath === path) return { runId: location.id, provider: 'codex' };
+      for (const location of this.locations.values()) if (location.filePath === path) return { runId: location.rootRunId ?? location.id, provider: 'codex' };
       return { runId: undefined, provider: 'codex' };
     }
     // <projects>/<proj>/<sid>.jsonl or <projects>/<proj>/<sid>/subagents/agent-x.(jsonl|meta.json)
@@ -173,7 +209,11 @@ export class Monitor extends EventEmitter<MonitorEvents> {
     if (!location) {
       // New session file.
       if (!path.endsWith('.jsonl')) return;
-      const header = provider === 'codex' ? await codexHeader(path, this.settings) : await claudeHeader(path, this.settings);
+      if (provider === 'codex') {
+        await this.rescanCodexTrees();
+        return;
+      }
+      const header = await claudeHeader(path, this.settings);
       if (!header) return;
       location = header.location;
       this.locations.set(location.id, location);
@@ -184,6 +224,7 @@ export class Monitor extends EventEmitter<MonitorEvents> {
     if (location.id === this.watchedRunId || this.details.has(location.id)) {
       try {
         const detail = await loadRunDetail(location, this.settings);
+        if (!this.locationIsCurrent(location)) return;
         this.details.set(location.id, detail);
         this.recordStatuses(detail, true);
         this.runs.set(location.id, detail.run);
@@ -194,8 +235,8 @@ export class Monitor extends EventEmitter<MonitorEvents> {
       }
       return;
     }
-    const header = location.provider === 'codex' ? await codexHeader(location.filePath, this.settings) : await claudeHeader(location.filePath, this.settings);
-    if (!header) return;
+    const header = location.provider === 'codex' ? await codexRunHeader(location, this.settings) : await claudeHeader(location.filePath, this.settings);
+    if (!header || !this.locationIsCurrent(location)) return;
     const previous = this.runs.get(location.id);
     const changes: AgentStatusChange[] = [];
     if (previous && previous.status !== header.run.status && (header.run.status === 'finished' || header.run.status === 'errored')) {
@@ -207,8 +248,16 @@ export class Monitor extends EventEmitter<MonitorEvents> {
   }
 
   private async handleRemove(path: string): Promise<void> {
-    const { runId } = this.runIdForPath(path);
-    if (!runId || !path.endsWith('.jsonl') || basename(path).startsWith('agent-')) return;
+    const pending = this.pending.get(path);
+    if (pending) clearTimeout(pending);
+    this.pending.delete(path);
+    const { runId, provider } = this.runIdForPath(path);
+    if (!path.endsWith('.jsonl')) return;
+    if (provider === 'codex') {
+      await this.rescanCodexTrees();
+      return;
+    }
+    if (!runId || basename(path).startsWith('agent-')) return;
     const location = this.locations.get(runId);
     if (location && location.filePath === path) {
       this.locations.delete(runId);
@@ -218,11 +267,36 @@ export class Monitor extends EventEmitter<MonitorEvents> {
     }
   }
 
+  /** Adding/removing a rollout changes ancestry, including orphan promotion. */
+  private async rescanCodexTrees(): Promise<void> {
+    this.codexRescanRequested = true;
+    if (this.codexScanning) return this.codexScanning;
+    this.codexScanning = (async () => {
+      do {
+        this.codexRescanRequested = false;
+        // A scan already in progress may have listed the directory before this
+        // event. Follow it with one scan that includes the new tree membership.
+        if (this.scanning) await this.scanning;
+        await this.rescan();
+        if (this.watchedRunId) {
+          this.watchedRunId = this.rootRunId(this.watchedRunId);
+          const watched = this.locations.get(this.watchedRunId);
+          if (watched?.provider === 'codex') await this.handleChange(watched.filePath);
+        }
+      } while (this.codexRescanRequested);
+    })();
+    try {
+      await this.codexScanning;
+    } finally {
+      this.codexScanning = undefined;
+    }
+  }
+
   /** Statuses depend on wall-clock time, so re-derive runs that were recently active. */
   private async refreshActive(): Promise<void> {
     const window = this.settings.activeWindowSeconds * 1000 * 2;
     const now = Date.now();
-    const stale = [...this.runs.values()].filter((r) => r.status === 'running' || (r.lastActivityAt !== undefined && now - r.lastActivityAt < window));
+    const stale = [...this.runs.values()].filter((r) => r.status === 'running' || (r.lastActivityAt !== undefined && (now - r.lastActivityAt < window || (r.provider === 'codex' && r.status === 'idle'))));
     let changed = false;
     for (const run of stale) {
       const location = this.locations.get(run.id);
@@ -230,6 +304,7 @@ export class Monitor extends EventEmitter<MonitorEvents> {
       if (location.id === this.watchedRunId) {
         try {
           const detail = await loadRunDetail(location, this.settings, now);
+          if (!this.locationIsCurrent(location)) continue;
           this.details.set(location.id, detail);
           this.recordStatuses(detail, true);
           if (this.runs.get(run.id)?.status !== detail.run.status) changed = true;
@@ -240,8 +315,8 @@ export class Monitor extends EventEmitter<MonitorEvents> {
         }
         continue;
       }
-      const header = location.provider === 'codex' ? await codexHeader(location.filePath, this.settings, now) : await claudeHeader(location.filePath, this.settings, now);
-      if (header && header.run.status !== run.status) {
+      const header = location.provider === 'codex' ? await codexRunHeader(location, this.settings, now) : await claudeHeader(location.filePath, this.settings, now);
+      if (header && this.locationIsCurrent(location) && header.run.status !== run.status) {
         this.runs.set(run.id, { ...header.run, ...(run.tokensLoaded && run.tokens ? { tokens: run.tokens, tokensLoaded: true } : {}) });
         changed = true;
         if (header.run.status === 'finished' || header.run.status === 'errored') {

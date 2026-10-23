@@ -116,7 +116,23 @@ export const useStore = create<UiState & UiActions>((set) => ({
   setLoading: (loading) => set({ loading }),
   selectRun: (selectedRunId) => set({ selectedRunId, selectedAgentId: undefined, selectedWorkflowId: undefined, selectedChatId: undefined }),
   selectAgent: (selectedAgentId) => set({ selectedAgentId }),
-  setDetail: (detail) => set((state) => ({ details: { ...state.details, [detail.run.id]: detail }, detailLoading: false })),
+  setDetail: (detail) => set((state) => {
+    const selectedId = state.selectedRunId;
+    const adopted = selectedId !== undefined && selectedId !== detail.run.id && detail.run.provider === 'codex'
+      && detail.agents.some((agent) => agent.id === selectedId && agent.runId === detail.run.id && agent.provider === 'codex' && agent.role === 'subagent');
+    const selectedRun = adopted ? state.snapshot?.runs.find((run) => run.id === selectedId) ?? state.details[selectedId]?.run : undefined;
+    // A previously visible orphan can acquire a parent during discovery. Follow
+    // its new root so the open tree remains visible after its old row disappears.
+    const redirect = adopted && selectedRun?.provider !== 'claude';
+    return {
+      details: { ...state.details, [detail.run.id]: detail },
+      detailLoading: false,
+      ...(redirect ? {
+        selectedRunId: detail.run.id,
+        selectedAgentId: state.selectedAgentId && detail.agents.some((agent) => agent.id === state.selectedAgentId) ? state.selectedAgentId : selectedId,
+      } : {}),
+    };
+  }),
   setDetailLoading: (detailLoading) => set({ detailLoading }),
   mergeRun: (run) =>
     set((state) => {

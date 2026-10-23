@@ -27,6 +27,9 @@ describe('describeToolCall', () => {
 
   it('handles Codex tools', () => {
     expect(describeToolCall('exec_command', { cmd: 'pytest -q' }).summary).toBe('Running pytest -q');
+    expect(describeToolCall('spawn_agent', { message: 'Audit the parser tests' })).toMatchObject({ kind: 'delegate', summary: 'Delegating: Audit the parser tests' });
+    expect(describeToolCall('send_input', {}).kind).toBe('delegate');
+    expect(describeToolCall('wait', {}).summary).toBe('Waiting for subagents');
     const patch = describeToolCall('apply_patch', { input: '*** Begin Patch\n*** Add File: /home/dev/app/a.ts\n*** Update File: /home/dev/app/b.ts\n*** End Patch' }, cwd);
     expect(patch.summary).toBe('Editing a.ts and 1 more');
     expect(patch.writes).toEqual(['a.ts', 'b.ts']);
