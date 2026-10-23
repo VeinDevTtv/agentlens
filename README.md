@@ -77,6 +77,10 @@ AgentLens reads two directory trees. Both are configurable in Settings.
 
 On startup only the first and last chunks of each file are read, which is enough to list a run with its title, project, branch, and status. A run is parsed in full when you select it or when its token total scrolls into view. A file watcher re-parses the open run as the agent writes to it and refreshes the others cheaply.
 
+Background runs retain their last counted tokens and show **stale** after new activity; opening a run refreshes its total. Scrolling a run into view can still trigger its first full parse. Previously opened background runs use header reads on subsequent writes, and both processes retain at most eight full details. Graph layout and cost calculations are reused while only the elapsed-time clock changes.
+
+The selected run keeps its last available detail visible during refresh. A discovery miss is retried once after a rescan; read failures offer **Retry** and **Check session directory**. Continuous writes cannot keep a load retrying forever: each request attempts at most two full parses, then shows the latest completed snapshot with a refresh notice. Watcher updates are debounced by 250 ms with a one-second maximum wait, so sustained activity still produces updates. These bounds reduce repeated work; they do not make full transcript parsing incremental.
+
 How the pieces are derived:
 
 - **Project name:** the git repository root containing the session's working directory, otherwise the last path segment. Codex sessions use the repository URL when present. Sessions started by scheduled Claude jobs are grouped under "Claude scheduled jobs".

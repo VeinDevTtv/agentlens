@@ -1,4 +1,5 @@
 import { FolderOpen, GitBranch, PanelLeft, Workflow, GanttChartSquare } from 'lucide-react';
+import { useMemo } from 'react';
 import { estimateCost, formatCost } from '../../core/pricing';
 import { totalTokens } from '../../core/tokens';
 import type { RunDetail, RunSummary } from '../../shared/types';
@@ -14,10 +15,12 @@ export function Header({ run, detail }: { run: RunSummary | undefined; detail: R
   const now = useStore((s) => s.now);
   const pricing = useStore((s) => s.settings.pricing);
 
-  const usageByModel = detail?.agents.flatMap((a) => a.usageByModel) ?? [];
-  const cost = usageByModel.length ? estimateCost(usageByModel, pricing) : undefined;
+  const cost = useMemo(() => {
+    const usageByModel = detail?.agents.flatMap((agent) => agent.usageByModel) ?? [];
+    return usageByModel.length ? estimateCost(usageByModel, pricing) : undefined;
+  }, [detail, pricing]);
   const tokens = run?.tokens ? totalTokens(run.tokens) : undefined;
-  const runningAgents = detail?.agents.filter((a) => a.status === 'running').length ?? 0;
+  const runningAgents = useMemo(() => detail?.agents.filter((agent) => agent.status === 'running').length ?? 0, [detail]);
   const end = run?.status === 'running' ? now : run?.lastActivityAt;
 
   return (

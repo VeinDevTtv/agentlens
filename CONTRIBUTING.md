@@ -31,6 +31,8 @@ CI runs the same four commands on macOS, Windows, and Linux. Keep TypeScript str
 
 ## Adding or fixing a parser
 
+Renderer regressions that involve hooks, loading, or controls belong in `tests/renderer/`. These tests mount the real React components with React's `act` and the development-only Happy DOM environment; they do not require Electron or a browser download. Keep the desktop bridge synthetic, and exercise visible behavior or asynchronous races rather than component implementation details.
+
 1. Capture a **small, synthetic** JSONL fixture under `tests/fixtures/`. Hand-write it or scrub a real one: fake paths like `/home/dev/projects/...`, no real prompts, no secrets. Fixtures should be a few KB at most.
 2. Write the failing test in `tests/*.test.ts`.
 3. Implement in `src/core/<provider>/`. Keep records tolerant: unknown fields are ignored and malformed lines are skipped, because the file is often mid-write.

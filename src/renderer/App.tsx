@@ -1,4 +1,4 @@
-import { AlertTriangle, FolderSearch, Inbox, Loader2 } from 'lucide-react';
+import { AlertTriangle, FolderSearch, Inbox, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect } from 'react';
 import { ChatView } from './components/ChatView';
 import { EmptyState } from './components/EmptyState';
@@ -54,6 +54,9 @@ function MainArea() {
   const selectedRunId = useStore((s) => s.selectedRunId);
   const detail = useStore((s) => (selectedRunId ? s.details[selectedRunId] : undefined));
   const detailLoading = useStore((s) => s.detailLoading);
+  const detailError = useStore((s) => s.detailError);
+  const retrySelectedRun = useStore((s) => s.retrySelectedRun);
+  const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const selectedAgentId = useStore((s) => s.selectedAgentId);
   const selectAgent = useStore((s) => s.selectAgent);
   const view = useStore((s) => s.view);
@@ -81,6 +84,17 @@ function MainArea() {
   }
   if (!snapshot || snapshot.runs.length === 0) return <SourcesEmptyState />;
   if (!run) {
+    if (selectedRunId) {
+      return (
+        <EmptyState
+          icon={AlertTriangle}
+          title="Run is no longer available"
+          actions={<button type="button" className="btn" onClick={() => setSettingsOpen(true)}>Check session directory</button>}
+        >
+          <p>The session was removed from the current sources. Choose another run from the sidebar or check the session directory in Settings.</p>
+        </EmptyState>
+      );
+    }
     return (
       <EmptyState icon={Inbox} title="Pick a run">
         <p>
@@ -98,19 +112,39 @@ function MainArea() {
   }
   if (!detail) {
     return (
-      <EmptyState icon={AlertTriangle} title="Run could not be loaded">
-        <p>The session file may have been removed. Try rescanning.</p>
+      <EmptyState
+        icon={AlertTriangle}
+        title="Run could not be loaded"
+        actions={
+          <>
+            <button type="button" className="btn primary" onClick={retrySelectedRun}>Retry</button>
+            <button type="button" className="btn" onClick={() => setSettingsOpen(true)}>Check session directory</button>
+          </>
+        }
+      >
+        <p>{detailError ?? 'The session may have changed while it was being read. Retry to load the latest available detail.'}</p>
       </EmptyState>
     );
   }
   return (
-    <div className="workspace">
-      {view === 'topology' ? (
-        <Topology agents={detail.agents} now={now} selectedAgentId={selectedAgentId} onSelect={selectAgent} />
-      ) : (
-        <Timeline agents={detail.agents} now={now} selectedAgentId={selectedAgentId} onSelect={selectAgent} />
+    <div className="run-workspace">
+      {(detailError || detail.stale || run.tokensStale || detailLoading) && (
+        <div className={`run-refresh-status${detailError ? ' error' : ''}`} role="status">
+          {detailError ? <AlertTriangle size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+          <span>
+            {detailError ? `Could not refresh this run. Showing the last available detail. ${detailError}` : detailLoading ? 'Refreshing this run. Showing the last available detail.' : 'This snapshot may be out of date. Refresh to read the latest available detail.'}
+          </span>
+          {!detailLoading && <button type="button" className="btn small" onClick={retrySelectedRun}>Refresh</button>}
+        </div>
       )}
-      {selectedAgent && <SidePanel key={selectedAgent.id} agent={selectedAgent} run={detail.run} onClose={() => selectAgent(undefined)} />}
+      <div className="workspace" aria-busy={detailLoading}>
+        {view === 'topology' ? (
+          <Topology agents={detail.agents} now={now} selectedAgentId={selectedAgentId} onSelect={selectAgent} />
+        ) : (
+          <Timeline agents={detail.agents} now={now} selectedAgentId={selectedAgentId} onSelect={selectAgent} />
+        )}
+        {selectedAgent && <SidePanel key={selectedAgent.id} agent={selectedAgent} run={detail.run} onClose={() => selectAgent(undefined)} />}
+      </div>
     </div>
   );
 }

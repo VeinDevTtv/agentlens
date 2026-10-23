@@ -109,6 +109,8 @@ export interface RunSummary {
   /** Populated lazily once the run has been parsed in full. */
   tokens?: TokenUsage;
   tokensLoaded: boolean;
+  /** A previous total is available, but newer log records have not been counted yet. */
+  tokensStale?: boolean;
   /** No assistant turn was ever recorded (e.g. an aborted or scheduled-job shell). */
   isEmpty: boolean;
 }
@@ -124,6 +126,8 @@ export interface ProjectGroup {
 export interface RunDetail {
   run: RunSummary;
   agents: AgentDetail[];
+  /** A completed snapshot returned while the log or discovered file set kept changing. */
+  stale?: boolean;
 }
 
 export interface DiscoverySource {

@@ -6,6 +6,8 @@ export type StatusFilter = 'all' | AgentStatus;
 export type ProviderFilter = 'all' | Provider;
 export type View = 'topology' | 'timeline';
 
+const MAX_CACHED_DETAILS = 8;
+
 export interface UiState {
   snapshot: Snapshot | undefined;
   snapshotError: string | undefined;
@@ -14,6 +16,8 @@ export interface UiState {
   selectedAgentId: string | undefined;
   details: Record<string, RunDetail>;
   detailLoading: boolean;
+  detailError: string | undefined;
+  detailRequestVersion: number;
   search: string;
   projectFilter: string | 'all';
   statusFilter: StatusFilter;
@@ -44,6 +48,8 @@ export interface UiActions {
   selectAgent(agentId: string | undefined): void;
   setDetail(detail: RunDetail): void;
   setDetailLoading(loading: boolean): void;
+  setDetailError(error: string | undefined): void;
+  retrySelectedRun(): void;
   mergeRun(run: RunSummary): void;
   setSearch(search: string): void;
   setProjectFilter(project: string | 'all'): void;
@@ -90,6 +96,8 @@ export const useStore = create<UiState & UiActions>((set) => ({
   selectedAgentId: undefined,
   details: {},
   detailLoading: false,
+  detailError: undefined,
+  detailRequestVersion: 0,
   search: '',
   projectFilter: 'all',
   statusFilter: 'all',
@@ -114,10 +122,28 @@ export const useStore = create<UiState & UiActions>((set) => ({
   setSnapshot: (snapshot) => set({ snapshot, loading: false, snapshotError: undefined }),
   setSnapshotError: (snapshotError) => set({ snapshotError, loading: false }),
   setLoading: (loading) => set({ loading }),
-  selectRun: (selectedRunId) => set({ selectedRunId, selectedAgentId: undefined, selectedWorkflowId: undefined, selectedChatId: undefined }),
+  selectRun: (selectedRunId) => set({ selectedRunId, selectedAgentId: undefined, selectedWorkflowId: undefined, selectedChatId: undefined, detailError: undefined }),
   selectAgent: (selectedAgentId) => set({ selectedAgentId }),
-  setDetail: (detail) => set((state) => ({ details: { ...state.details, [detail.run.id]: detail }, detailLoading: false })),
+  setDetail: (detail) => set((state) => {
+    const details = { ...state.details };
+    delete details[detail.run.id];
+    details[detail.run.id] = detail;
+    const ids = Object.keys(details);
+    let count = ids.length;
+    for (const id of ids) {
+      if (count <= MAX_CACHED_DETAILS) break;
+      if (id === state.selectedRunId) continue;
+      delete details[id];
+      count -= 1;
+    }
+    return {
+      details,
+      ...(state.selectedRunId === detail.run.id ? { detailLoading: false, detailError: undefined } : {}),
+    };
+  }),
   setDetailLoading: (detailLoading) => set({ detailLoading }),
+  setDetailError: (detailError) => set({ detailError }),
+  retrySelectedRun: () => set((state) => ({ detailRequestVersion: state.detailRequestVersion + 1, detailError: undefined })),
   mergeRun: (run) =>
     set((state) => {
       if (!state.snapshot) return {};
@@ -149,7 +175,7 @@ export const useStore = create<UiState & UiActions>((set) => ({
       selectedWorkflowId: state.selectedWorkflowId === id ? undefined : state.selectedWorkflowId,
     })),
   setOrchestratorConfig: (orchestrator) => set({ orchestrator }),
-  selectWorkflow: (selectedWorkflowId) => set({ selectedWorkflowId, selectedRunId: undefined, selectedAgentId: undefined, selectedChatId: undefined }),
+  selectWorkflow: (selectedWorkflowId) => set({ selectedWorkflowId, selectedRunId: undefined, selectedAgentId: undefined, selectedChatId: undefined, detailError: undefined }),
   setWorkflowDialogOpen: (workflowDialogOpen) => set({ workflowDialogOpen }),
   setChats: (chats) => set({ chats: [...chats].sort((a, b) => b.updatedAt - a.updatedAt) }),
   upsertChat: (chat) =>
@@ -163,6 +189,6 @@ export const useStore = create<UiState & UiActions>((set) => ({
       chats: state.chats.filter((c) => c.id !== id),
       selectedChatId: state.selectedChatId === id ? undefined : state.selectedChatId,
     })),
-  selectChat: (selectedChatId) => set({ selectedChatId, selectedRunId: undefined, selectedAgentId: undefined, selectedWorkflowId: undefined }),
+  selectChat: (selectedChatId) => set({ selectedChatId, selectedRunId: undefined, selectedAgentId: undefined, selectedWorkflowId: undefined, detailError: undefined }),
   setChatDialogOpen: (chatDialogOpen) => set({ chatDialogOpen }),
 }));

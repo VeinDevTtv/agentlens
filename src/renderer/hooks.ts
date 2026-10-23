@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { bridge } from './lib/bridge';
+import { loadSelectedRun, preferLiveDetail } from './lib/load-selected-run';
 import { useStore } from './store';
 
 /** Wire the preload bridge into the store: initial snapshot, live updates, settings. */
@@ -55,31 +56,50 @@ export function useMonitor(): void {
 /** Load the selected run's detail and tell the main process to keep it fresh. */
 export function useSelectedRun(): void {
   const selectedRunId = useStore((s) => s.selectedRunId);
+  const detailRequestVersion = useStore((s) => s.detailRequestVersion);
   const setDetail = useStore((s) => s.setDetail);
   const setDetailLoading = useStore((s) => s.setDetailLoading);
+  const setDetailError = useStore((s) => s.setDetailError);
   const mergeRun = useStore((s) => s.mergeRun);
 
   useEffect(() => {
     const api = bridge();
     if (!api) return;
-    void api.watchRun(selectedRunId);
+    void api.watchRun(selectedRunId).catch(() => undefined);
     if (!selectedRunId) return;
     let cancelled = false;
+    const detailAtStart = useStore.getState().details[selectedRunId];
     setDetailLoading(true);
-    void api
-      .loadRun(selectedRunId)
+    setDetailError(undefined);
+    void loadSelectedRun(api, selectedRunId, () => !cancelled)
       .then((detail) => {
         if (cancelled) return;
+        const current = useStore.getState().details[selectedRunId];
+        if (preferLiveDetail(current, detailAtStart, detail)) {
+          setDetailLoading(false);
+          return;
+        }
         if (detail) {
           setDetail(detail);
-          mergeRun(detail.run);
-        } else setDetailLoading(false);
+          // The main process keeps newer header metadata when a busy log forces
+          // a stale fallback. Do not replace that snapshot with the older parse.
+          if (!detail.stale) mergeRun(detail.run);
+        } else {
+          setDetailLoading(false);
+          setDetailError('This run is no longer available in the configured session directories. Choose another run or check Settings.');
+        }
       })
-      .catch(() => !cancelled && setDetailLoading(false));
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setDetailLoading(false);
+        // A successful live update can arrive while an older IPC request fails.
+        if (preferLiveDetail(useStore.getState().details[selectedRunId], detailAtStart, undefined)) return;
+        setDetailError(error instanceof Error ? error.message : 'Could not read this run. Retry or check the session directory in Settings.');
+      });
     return () => {
       cancelled = true;
     };
-  }, [selectedRunId, setDetail, setDetailLoading, mergeRun]);
+  }, [selectedRunId, detailRequestVersion, setDetail, setDetailLoading, setDetailError, mergeRun]);
 }
 
 /** Keep relative times and elapsed counters moving. */

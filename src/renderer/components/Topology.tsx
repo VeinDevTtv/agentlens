@@ -9,6 +9,7 @@ const NODE_WIDTH = 300;
 
 type AgentNodeData = { agent: AgentDetail; now: number; selected: boolean; onSelect: (id: string) => void };
 type AgentNode = Node<AgentNodeData, 'agent'>;
+type PositionedAgentNode = Node<{ agent: AgentDetail }, 'agent'>;
 
 function estimateHeight(agent: AgentDetail): number {
   let height = 118;
@@ -38,7 +39,7 @@ const EDGE_COLOR: Record<AgentStatus, string> = {
   errored: 'var(--errored)',
 };
 
-function layout(agents: AgentDetail[], now: number, selectedId: string | undefined, onSelect: (id: string) => void): { nodes: AgentNode[]; edges: Edge[] } {
+function layout(agents: AgentDetail[]): { nodes: PositionedAgentNode[]; edges: Edge[] } {
   const graph = new dagre.graphlib.Graph();
   graph.setGraph({ rankdir: 'TB', nodesep: 36, ranksep: 70, marginx: 20, marginy: 20 });
   graph.setDefaultEdgeLabel(() => ({}));
@@ -59,13 +60,13 @@ function layout(agents: AgentDetail[], now: number, selectedId: string | undefin
     });
   }
   dagre.layout(graph);
-  const nodes: AgentNode[] = agents.map((agent) => {
+  const nodes: PositionedAgentNode[] = agents.map((agent) => {
     const pos = graph.node(agent.id);
     return {
       id: agent.id,
       type: 'agent',
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - pos.height / 2 },
-      data: { agent, now, selected: agent.id === selectedId, onSelect },
+      data: { agent },
       draggable: true,
       selectable: false,
       focusable: true,
@@ -86,14 +87,18 @@ function FitOnChange({ signature }: { signature: string }) {
 }
 
 export function Topology({ agents, now, selectedAgentId, onSelect }: { agents: AgentDetail[]; now: number; selectedAgentId: string | undefined; onSelect: (id: string) => void }) {
-  // Layout depends on structure, not on the ticking clock; node data is refreshed separately.
+  // Re-run dagre when agent data changes, not when the clock or selection changes.
   const structureKey = agents.map((a) => `${a.id}:${a.parentId ?? ''}:${estimateHeight(a)}`).join('|');
-  const { nodes, edges } = useMemo(() => layout(agents, now, selectedAgentId, onSelect), [agents, now, selectedAgentId, onSelect]);
+  const positioned = useMemo(() => layout(agents), [agents]);
+  const nodes = useMemo<AgentNode[]>(() => positioned.nodes.map((node) => ({
+    ...node,
+    data: { ...node.data, now, selected: node.id === selectedAgentId, onSelect },
+  })), [positioned.nodes, now, selectedAgentId, onSelect]);
   return (
     <div className="topology" role="region" aria-label="Agent topology">
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={positioned.edges}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.2}
