@@ -21,7 +21,7 @@ function useLazyTokens(run: RunSummary, mergeRun: (run: RunSummary) => void) {
       observer.disconnect();
       void api.loadRunTokens(run.id).then((updated) => {
         if (!cancelled && updated) mergeRun(updated);
-      });
+      }).catch(() => undefined);
     });
     observer.observe(el);
     return () => {
@@ -59,7 +59,9 @@ function RunRow({ run, selected, now, onSelect }: { run: RunSummary; selected: b
       <span className="right">
         <span>{formatRelative(run.lastActivityAt, now)}</span>
         {run.tokensLoaded && run.tokens ? (
-          <span title="Total tokens">{formatCompact(totalTokens(run.tokens))} tok</span>
+          <span title={run.tokensStale ? 'Previously counted tokens. Open this run to refresh the total.' : 'Total tokens'} aria-label={run.tokensStale ? `${formatCompact(totalTokens(run.tokens))} tokens, awaiting refresh` : undefined}>
+            {formatCompact(totalTokens(run.tokens))} tok{run.tokensStale ? ' · stale' : ''}
+          </span>
         ) : run.isEmpty ? (
           <span>empty</span>
         ) : (

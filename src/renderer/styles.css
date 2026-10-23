@@ -178,6 +178,11 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; border: 1px
 .agent-grid { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px; overflow: auto; align-content: flex-start; }
 
 /* Topology */
+.run-workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.run-refresh-status { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-size: 12px; }
+.run-refresh-status > svg, .run-refresh-status > button { flex: none; }
+.run-refresh-status > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.run-refresh-status.error { color: var(--errored); background: var(--errored-soft); }
 .workspace { flex: 1; display: flex; min-height: 0; position: relative; }
 .topology { flex: 1; min-width: 0; }
 .react-flow { background: var(--bg); }

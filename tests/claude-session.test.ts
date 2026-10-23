@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseClaudeHeader, parseClaudeSession, parseSubagentMeta } from '../src/core';
+import * as status from '../src/core/status';
 import { fixture, MINUTE } from './helpers';
 
 const MAIN_LAST = Date.parse('2026-01-15T10:00:41.000Z');
@@ -166,6 +167,30 @@ describe('parseClaudeSession', () => {
 });
 
 describe('parseClaudeHeader', () => {
+  it('reads API errors from the head when a small file has no tail chunk', () => {
+    const at = Date.parse('2026-02-01T06:00:20.000Z');
+    const run = parseClaudeHeader({ sessionId: 'sess-job', filePath: '/job.jsonl', headText: fixture('claude-job-tmp.jsonl'), tailText: '', mtimeMs: at, subagentCount: 0, now: at, activeWindowMs: MINUTE });
+    expect(run.status).toBe('errored');
+  });
+
+  it('derives the last activity and pending tool state from an entire head chunk', () => {
+    const at = Date.parse('2026-03-02T14:00:10.000Z');
+    const headText = JSON.stringify({ type: 'assistant', timestamp: '2026-03-02T14:00:10.000Z', message: { role: 'assistant', model: 'claude-test', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'read', name: 'Read', input: { file_path: '/demo/a.ts' } }] } });
+    const input = { sessionId: 'small', filePath: '/small.jsonl', headText, tailText: '', mtimeMs: at - MINUTE, subagentCount: 0, now: at, activeWindowMs: MINUTE };
+    const derive = vi.spyOn(status, 'deriveStatus');
+    try {
+      const pending = parseClaudeHeader(input);
+      expect(pending.lastActivityAt).toBe(at);
+      expect(pending.status).toBe('running');
+      expect(derive).toHaveBeenLastCalledWith(expect.objectContaining({ lastActivityAt: at, pendingToolCall: true }));
+      const result = JSON.stringify({ type: 'user', timestamp: '2026-03-02T14:00:11.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read', content: 'file contents' }] } });
+      expect(parseClaudeHeader({ ...input, headText: `${headText}\n${result}` }).lastActivityAt).toBe(at + 1000);
+      expect(derive).toHaveBeenLastCalledWith(expect.objectContaining({ lastActivityAt: at + 1000, pendingToolCall: false }));
+    } finally {
+      derive.mockRestore();
+    }
+  });
+
   it('produces a listing entry without parsing the whole file', () => {
     const text = fixture('claude-main.jsonl');
     const run = parseClaudeHeader({
